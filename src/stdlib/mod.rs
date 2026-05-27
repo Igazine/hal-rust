@@ -1,13 +1,11 @@
-use crate::types::{Value, TaskValue, Scope, ExecutionContext};
+use crate::types::{Value, TaskValue, Scope};
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::cell::RefCell;
 use crate::interpreter::{EvalResult};
 
-pub fn register(scope: &Arc<dyn Scope>) {
-    let register_module = |name: &str, tasks: HashMap<String, Value>| {
-        scope.set(name, Value::Object(Arc::new(RefCell::new(tasks))));
-    };
+pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
+    let mut modules = HashMap::new();
 
     // --- log ---
     let mut log_mod = HashMap::new();
@@ -32,7 +30,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::Void
         }
     })));
-    register_module("log", log_mod);
+    modules.insert("log".into(), log_mod);
 
     // --- runtime ---
     let mut runtime_mod = HashMap::new();
@@ -61,7 +59,6 @@ pub fn register(scope: &Arc<dyn Scope>) {
         func: |args, ctx| {
             if let Some(task) = args.get(0) {
                 loop {
-                    // Use trait method call
                     let res = ctx.call(task, vec![]);
                     if !matches!(res, Value::Void) { break; }
                 }
@@ -69,7 +66,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::Void
         }
     })));
-    register_module("runtime", runtime_mod);
+    modules.insert("runtime".into(), runtime_mod);
 
     // --- env ---
     let mut env_mod = HashMap::new();
@@ -85,7 +82,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
         name: "env.keys".into(),
         func: |_, _| Value::Array(Arc::new(RefCell::new(vec![])))
     })));
-    register_module("env", env_mod);
+    modules.insert("env".into(), env_mod);
 
     // --- math ---
     let mut math_mod = HashMap::new();
@@ -117,7 +114,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
         name: "math.eq".into(),
         func: |args, _| { if let (Some(a), Some(b)) = (args.get(0), args.get(1)) { if val_to_string(a) == val_to_string(b) { Value::Number(1.0) } else { Value::Void } } else { Value::Void } }
     })));
-    register_module("math", math_mod);
+    modules.insert("math".into(), math_mod);
 
     // --- str ---
     let mut str_mod = HashMap::new();
@@ -147,7 +144,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
         name: "str.trim".into(),
         func: |args, _| { if let Some(Value::String(s)) = args.get(0) { return Value::String(s.trim().to_string()); } Value::Void }
     })));
-    register_module("str", str_mod);
+    modules.insert("str".into(), str_mod);
 
     // --- logic ---
     let mut logic_mod = HashMap::new();
@@ -167,7 +164,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::Void
         }
     })));
-    register_module("logic", logic_mod);
+    modules.insert("logic".into(), logic_mod);
 
     // --- arr ---
     let mut arr_mod = HashMap::new();
@@ -203,7 +200,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::Void
         }
     })));
-    register_module("arr", arr_mod);
+    modules.insert("arr".into(), arr_mod);
 
     // --- obj ---
     let mut obj_mod = HashMap::new();
@@ -231,7 +228,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             } else { Value::Void }
         }
     })));
-    register_module("obj", obj_mod);
+    modules.insert("obj".into(), obj_mod);
 
     // --- json ---
     let mut json_mod = HashMap::new();
@@ -254,7 +251,7 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::Void
         }
     })));
-    register_module("json", json_mod);
+    modules.insert("json".into(), json_mod);
     
     // --- regex ---
     let mut regex_mod = HashMap::new();
@@ -292,7 +289,9 @@ pub fn register(scope: &Arc<dyn Scope>) {
             Value::String(s.replace(&pattern, &repl))
         }
     })));
-    register_module("regex", regex_mod);
+    modules.insert("regex".into(), regex_mod);
+
+    modules
 }
 
 fn val_to_string(v: &Value) -> String {

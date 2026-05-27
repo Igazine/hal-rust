@@ -17,6 +17,15 @@ pub struct HALScope {
     pub parent: Option<Arc<dyn Scope>>,
 }
 
+impl HALScope {
+    pub fn new() -> Self {
+        Self {
+            values: RefCell::new(HashMap::new()),
+            parent: None,
+        }
+    }
+}
+
 impl Scope for HALScope {
     fn get(&self, name: &str) -> Value {
         if let Some(val) = self.values.borrow().get(name) { return val.clone(); }

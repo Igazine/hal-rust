@@ -345,15 +345,17 @@ impl Parser {
 
     fn parse_regex_value(&self, lit: &str) -> RegexValue {
         let parts: Vec<&str> = lit.split('/').collect();
-        if parts.len() >= 3 {
-            RegexValue {
-                pattern: parts[1].to_string(),
-                flags: parts[2].to_string(),
-                engine: None,
-            }
+        let (pattern, flags) = if parts.len() >= 3 {
+            (parts[1].to_string(), parts[2].to_string())
         } else {
-            RegexValue { pattern: lit.to_string(), flags: "".into(), engine: None }
-        }
+            (lit.to_string(), "".to_string())
+        };
+        
+        let mut final_pattern = pattern.clone();
+        if flags.contains('i') { final_pattern = format!("(?i){}", final_pattern); }
+        let engine = regex_lite::Regex::new(&final_pattern).ok();
+        
+        RegexValue { pattern, flags, engine }
     }
 
     fn consume_identifier(&mut self) -> Result<String, String> {
