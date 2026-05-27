@@ -2,6 +2,7 @@ pub mod types;
 pub mod lexer;
 pub mod parser;
 pub mod interpreter;
+pub mod stdlib;
 
 pub use types::*;
 pub use lexer::{Lexer, Token};

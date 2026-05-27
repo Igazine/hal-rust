@@ -16,6 +16,8 @@ name = "hal"
 version = "1.0.0"
 dependencies = [
  "regex-lite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
