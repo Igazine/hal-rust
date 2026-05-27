@@ -1,3 +1,3 @@
-[submodule "vendor/hal"]
-	path = vendor/hal
-	url = https://github.com/Igazine/hal.git
+[submodule "vendor/hank"]
+	path = vendor/hank
+	url = https://github.com/Igazine/hank.git
