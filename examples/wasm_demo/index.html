@@ -15,7 +15,6 @@
     <pre id="output">System initializing...</pre>
 
     <script type="module">
-        // Import must be absolute to the server root (hal-rust)
         import init, { WasmRunner } from '/pkg/hal.js';
 
         async function run() {
@@ -31,19 +30,30 @@
                 await init();
                 log('[System] Wasm Engine Loaded.');
 
-                // 1. Define Host I/O closures for the Wasm module
-                // This runner can now FETCH files from your actual dev server!
-                const readFile = async (path) => {
-                    log(`[Host] Reading: ${path}`);
-                    const response = await fetch(path);
-                    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-                    return await response.text();
+                // HAL is a synchronous engine, so we must pre-fetch our script resources
+                // and provide them synchronously to the Runner.
+                const fileCache = new Map();
+
+                log('[Host] Pre-fetching script resources...');
+                const demoPath = '/examples/wasm_demo/script.hal';
+                const response = await fetch(demoPath);
+                if (!response.ok) throw new Error(`Failed to fetch script: ${response.status}`);
+                const scriptContent = await response.text();
+                
+                // Store in our local sync cache
+                fileCache.set(demoPath, scriptContent);
+                log(`[Host] Cached: ${demoPath}`);
+
+                // 1. Define Host I/O closures for the Wasm module (Synchronous)
+                const readFile = (path) => {
+                    log(`[Host] Reading from Cache: ${path}`);
+                    if (fileCache.has(path)) return fileCache.get(path);
+                    throw new Error(`File not in cache: ${path}`);
                 };
 
                 const resolvePath = (macroPath, base) => {
                     log(`[Host] Resolving: ${macroPath}`);
-                    // For the demo, we assume everything is in the same directory as script.hal
-                    if (macroPath === 'main.hal') return '/examples/wasm_demo/script.hal';
+                    if (macroPath === 'main.hal') return demoPath;
                     return macroPath;
                 };
 
@@ -56,7 +66,7 @@
 
                 // 4. Run!
                 log('--- HAL Execution Starting ---');
-                const result = await runner.run('main.hal');
+                const result = runner.run('main.hal');
                 log('--- HAL Execution Finished ---');
                 log(`[Host] Final Return Value: ${result}`);
 
