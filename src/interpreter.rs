@@ -11,12 +11,12 @@ pub struct Interpreter {
 const MAX_DEPTH: usize = 500;
 
 #[derive(Debug)]
-pub struct HALScope {
+pub struct HankScope {
     pub values: RefCell<HashMap<String, Value>>,
     pub parent: Option<Arc<dyn Scope>>,
 }
 
-impl HALScope {
+impl HankScope {
     pub fn new() -> Self {
         Self {
             values: RefCell::new(HashMap::new()),
@@ -25,7 +25,7 @@ impl HALScope {
     }
 }
 
-impl Scope for HALScope {
+impl Scope for HankScope {
     fn get(&self, name: &str) -> Value {
         if let Some(val) = self.values.borrow().get(name) { return val.clone(); }
         if let Some(parent) = &self.parent { return parent.get(name); }
@@ -47,7 +47,7 @@ pub enum EvalResult {
 
 impl Interpreter {
     pub fn new(parent_scope: Option<Arc<dyn Scope>>, core_scope: Arc<dyn Scope>) -> Self {
-        let global = parent_scope.unwrap_or_else(|| Arc::new(HALScope {
+        let global = parent_scope.unwrap_or_else(|| Arc::new(HankScope {
             values: RefCell::new(HashMap::new()),
             parent: Some(core_scope.clone()),
         }));
@@ -194,7 +194,7 @@ impl Interpreter {
 
                         if let EvalResult::Error(err_msg) = res {
                             if let Some(rescue_block) = rescue {
-                                let rescue_scope: Arc<dyn Scope> = Arc::new(HALScope {
+                                let rescue_scope: Arc<dyn Scope> = Arc::new(HankScope {
                                     values: RefCell::new(HashMap::new()),
                                     parent: Some(scope.clone()),
                                 });
@@ -213,12 +213,12 @@ impl Interpreter {
         if let Value::Task(tv) = task {
             match &**tv {
                 TaskValue::Native { func, .. } => {
-                    let ctx = HALExecutionContext { interp: self, scope: scope.clone() };
+                    let ctx = HankExecutionContext { interp: self, scope: scope.clone() };
                     EvalResult::Value(func(args, &ctx))
                 },
                 TaskValue::User { params, body, closure, .. } => {
                     if args.len() > params.len() { return EvalResult::Error("Too many arguments".into()); }
-                    let task_scope: Arc<dyn Scope> = Arc::new(HALScope {
+                    let task_scope: Arc<dyn Scope> = Arc::new(HankScope {
                         values: RefCell::new(HashMap::new()),
                         parent: Some(closure.clone()),
                     });
@@ -246,9 +246,9 @@ impl Interpreter {
     fn is_truthy(&self, v: &Value) -> bool { !matches!(v, Value::Void) }
 }
 
-pub struct HALExecutionContext<'a> { pub interp: &'a Interpreter, pub scope: Arc<dyn Scope> }
+pub struct HankExecutionContext<'a> { pub interp: &'a Interpreter, pub scope: Arc<dyn Scope> }
 
-impl<'a> ExecutionContext for HALExecutionContext<'a> {
+impl<'a> ExecutionContext for HankExecutionContext<'a> {
     fn call(&self, task: &Value, args: Vec<Value>) -> Value {
         match self.interp.call(task, args, &self.scope) {
             EvalResult::Value(v) | EvalResult::Return(v) => v,

@@ -119,6 +119,6 @@ pub struct TokenData {
     pub line_text: String,
 }
 
-pub trait IHALSerializable {
+pub trait IHankSerializable {
     fn serialize_hal(&self) -> String;
 }

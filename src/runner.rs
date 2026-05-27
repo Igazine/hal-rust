@@ -1,7 +1,7 @@
 use crate::types::{Value, Scope, Expr, Arc};
 use crate::lexer::{Lexer, Token};
 use crate::parser::Parser;
-use crate::interpreter::{Interpreter, EvalResult, HALScope};
+use crate::interpreter::{Interpreter, EvalResult, HankScope};
 use std::collections::HashMap;
 use std::cell::RefCell;
 
@@ -30,7 +30,7 @@ impl Runner {
             path_cache: HashMap::new(),
             ast_cache: HashMap::new(),
             macro_map: HashMap::new(),
-            core_scope: Arc::new(HALScope::new()),
+            core_scope: Arc::new(HankScope::new()),
             read_file,
             resolve_path,
         }
