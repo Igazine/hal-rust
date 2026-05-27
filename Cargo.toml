@@ -1,0 +1,10 @@
+[package]
+name = "hal"
+version = "1.0.0"
+edition = "2021"
+
+[workspace]
+members = ["examples/runner"]
+
+[dependencies]
+regex-lite = "0.1"

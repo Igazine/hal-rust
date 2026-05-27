@@ -1,0 +1,6 @@
+/target/
+/vendor/
+**/*.rs.bk
+!.gitmodules
+.DS_Store
+hal-rust.code-workspace
