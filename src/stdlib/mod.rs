@@ -97,7 +97,16 @@ pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
     })));
     runtime_mod.insert("elapsedTime".into(), Value::Task(Arc::new(TaskValue::Native {
         name: "runtime.elapsedTime".into(),
-        func: |_, _| Value::Number(0.0)
+        func: |_, _| Value::Number(0.0),
+    })));
+    runtime_mod.insert("signal".into(), Value::Task(Arc::new(TaskValue::Native {
+        name: "runtime.signal".into(),
+        func: |args, _| {
+            if !args.is_empty() {
+                println!("[SIGNAL] {}", val_to_string(&args[0]));
+            }
+            Value::Void
+        },
     })));
     modules.insert("runtime".into(), runtime_mod);
 
