@@ -21,27 +21,43 @@ impl Parser {
 
     pub fn parse(&mut self) -> Result<Expr, String> {
         self.skip_newlines();
-        let td_root = self.peek_td();
         let mut stmts = vec![];
 
-        while !self.is_eof() {
-            self.skip_newlines();
-            if self.is_eof() { break; }
-
-            if matches!(self.peek(), Token::LParen) && self.is_func_def_start() {
-                let func = self.parse_func_def()?;
-                if stmts.is_empty() {
-                    self.skip_newlines();
-                    if self.is_eof() { return Ok(func); }
-                }
-                stmts.push(func);
-            } else {
-                stmts.push(self.parse_statement()?);
-            }
+        // 1. Consume Macro Includes
+        while !self.is_eof() && matches!(self.peek(), Token::At) {
+            stmts.push(self.parse_include()?);
             self.skip_newlines();
         }
 
-        if stmts.len() == 1 { return Ok(stmts.remove(0)); }
+        if self.is_eof() {
+            return Err("Syntax Error: Script is empty.".into());
+        }
+
+        // 2. Parse exactly ONE TaskDef (FuncDef or Block)
+        let main_task = if matches!(self.peek(), Token::LParen) && self.is_func_def_start() {
+            self.parse_func_def()?
+        } else if matches!(self.peek(), Token::LBrace) {
+            self.parse_block()?
+        } else {
+            return Err("Syntax Error: Expected main task definition (a closure or a block).".into());
+        };
+        stmts.push(main_task);
+
+        // 3. Assert EOF
+        self.skip_newlines();
+        if !self.is_eof() {
+            return Err("Syntax Error: Unexpected code outside of main task. A Hank script must contain exactly one Task definition.".into());
+        }
+
+        if stmts.len() == 1 {
+            return Ok(stmts.remove(0));
+        }
+        let td_root = match &stmts[0] {
+            Expr::Block(_, td) | Expr::Assign(_, _, td) | Expr::Literal(_, td) | 
+            Expr::Ident(_, _, td) | Expr::Field(_, _, td) | Expr::FuncDef(_, _, td) | 
+            Expr::FuncCall(_, _, td) | Expr::UnOp(_, _, td) | Expr::Object(_, td) | 
+            Expr::Array(_, td) | Expr::FlowControl(_, _, _, _, _, td) => td.clone(),
+        };
         Ok(Expr::Block(stmts, td_root))
     }
 
