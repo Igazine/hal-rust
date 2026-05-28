@@ -250,7 +250,15 @@ pub struct HankExecutionContext<'a> { pub interp: &'a Interpreter, pub scope: Ar
 
 impl<'a> ExecutionContext for HankExecutionContext<'a> {
     fn call(&self, task: &Value, args: Vec<Value>) -> Value {
-        match self.interp.call(task, args, &self.scope) {
+        let mut final_args = args;
+        if let Value::Task(tv) = task {
+            if let TaskValue::User { params, .. } = &**tv {
+                if final_args.len() > params.len() {
+                    final_args.truncate(params.len());
+                }
+            }
+        }
+        match self.interp.call(task, final_args, &self.scope) {
             EvalResult::Value(v) | EvalResult::Return(v) => v,
             EvalResult::Error(e) => { eprintln!("Dynamic Call Error: {}", e); Value::Void }
         }
