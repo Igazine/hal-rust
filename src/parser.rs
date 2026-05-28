@@ -333,8 +333,7 @@ impl Parser {
         let td = self.consume(Token::At)?;
         let raw_path = match self.peek() {
             Token::String(s) => { self.pos += 1; s },
-            Token::Identifier(id) => { self.pos += 1; id },
-            _ => return Err(self.error("Expected path string or identifier after @")),
+            _ => return Err(self.error("Syntax Error: The '@' macro strictly requires a string literal path (e.g., @ \"utils\"). Identifier shorthand is not allowed.")),
         };
 
         let content = self.macro_map.get(&raw_path).ok_or_else(|| self.error(&format!("Macro resource not found: @{}", raw_path)))?;
