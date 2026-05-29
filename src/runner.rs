@@ -24,8 +24,22 @@ impl Runner {
         }
     }
 
-    pub fn register_module(&self, name: &str, tasks: HashMap<String, Value>) {
-        self.core_scope.set(name, Value::Object(Arc::new(RefCell::new(tasks))));
+    pub fn register_module(&self, name: &str, tasks: HashMap<String, crate::types::NativeFunc>) {
+        let mut module_obj = HashMap::new();
+        for (t_name, func) in tasks {
+            module_obj.insert(t_name.clone(), Value::Task(Arc::new(crate::types::TaskValue::Native {
+                name: format!("{}.{}", name, t_name),
+                func,
+            })));
+        }
+        self.core_scope.set(name, Value::Object(Arc::new(RefCell::new(module_obj))));
+    }
+
+    pub fn register_extension(&self, ext: Box<dyn crate::types::HankExtension>) {
+        let mods = ext.get_modules();
+        for (name, tasks) in mods {
+            self.register_module(&name, tasks);
+        }
     }
 
     /**

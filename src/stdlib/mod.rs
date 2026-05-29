@@ -1,4 +1,4 @@
-use crate::types::{Value, TaskValue, Scope, OpaqueValue, Arc};
+use crate::types::{Value, TaskValue, Scope, OpaqueValue, Arc, EvalResult, HankError, HankErrorRegistry, HankErrorValue, NativeFunc, HankExtension, ExecutionContext, Expr};
 use std::collections::HashMap;
 use std::cell::RefCell;
 
@@ -46,154 +46,101 @@ fn hank_equals(a: &Value, b: &Value) -> bool {
     }
 }
 
-pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
+pub struct StdLib;
+
+impl HankExtension for StdLib {
+    fn name(&self) -> &str { "StdLib" }
+    fn get_modules(&self) -> HashMap<String, HashMap<String, NativeFunc>> {
+        get_stdlib_modules()
+    }
+}
+
+pub fn get_stdlib_modules() -> HashMap<String, HashMap<String, NativeFunc>> {
     let mut modules = HashMap::new();
 
     // --- log ---
     let mut log_mod = HashMap::new();
-    log_mod.insert("print".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "log.print".into(),
-        func: |args, _| {
+    log_mod.insert("print".into(), (|args, _| {
             let msg = args.iter().map(|a| val_to_string(a)).collect::<Vec<_>>().join(" ");
             #[cfg(target_arch = "wasm32")]
             wasm_log(&msg);
             #[cfg(not(target_arch = "wasm32"))]
             println!("{}", msg);
-            Value::Void
-        }
-    })));
-    log_mod.insert("error".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "log.error".into(),
-        func: |args, _| {
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
+    log_mod.insert("error".into(), (|args, _| {
             let msg = args.iter().map(|a| val_to_string(a)).collect::<Vec<_>>().join(" ");
             #[cfg(target_arch = "wasm32")]
             wasm_log(&format!("[ERROR] {}", msg));
             #[cfg(not(target_arch = "wasm32"))]
             eprintln!("{}", msg);
-            Value::Void
-        }
-    })));
-    log_mod.insert("warn".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "log.warn".into(),
-        func: |args, _| {
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
+    log_mod.insert("warn".into(), (|args, _| {
             let msg = args.iter().map(|a| val_to_string(a)).collect::<Vec<_>>().join(" ");
             #[cfg(target_arch = "wasm32")]
             wasm_log(&format!("[WARN] {}", msg));
             #[cfg(not(target_arch = "wasm32"))]
             println!("[WARN] {}", msg);
-            Value::Void
-        }
-    })));
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
     modules.insert("log".into(), log_mod);
 
     // --- runtime ---
     let mut runtime_mod = HashMap::new();
-    runtime_mod.insert("halt".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "runtime.halt".into(),
-        func: |args, _| {
+    runtime_mod.insert("halt".into(), (|args, _| {
             let code = if let Some(Value::Number(n)) = args.get(0) { *n as i32 } else { 0 };
             std::process::exit(code);
-        }
-    })));
-    runtime_mod.insert("elapsedTime".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "runtime.elapsedTime".into(),
-        func: |_, _| Value::Number(0.0),
-    })));
-    runtime_mod.insert("signal".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "runtime.signal".into(),
-        func: |args, _| {
+        }) as NativeFunc);
+    runtime_mod.insert("elapsedTime".into(), (|_ , _| EvalResult::Value(Value::Number(0.0))) as NativeFunc);
+    runtime_mod.insert("signal".into(), (|args, _| {
             if !args.is_empty() {
                 println!("[SIGNAL] {}", val_to_string(&args[0]));
             }
-            Value::Void
-        },
-    })));
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
     modules.insert("runtime".into(), runtime_mod);
 
     // --- env ---
     let mut env_mod = HashMap::new();
-    env_mod.insert("get".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "env.get".into(),
-        func: |_, _| Value::Void
-    })));
-    env_mod.insert("set".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "env.set".into(),
-        func: |_, _| Value::Void
-    })));
-    env_mod.insert("keys".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "env.keys".into(),
-        func: |_, _| Value::Array(Arc::new(RefCell::new(vec![])))
-    })));
+    env_mod.insert("get".into(), (|_, _| EvalResult::Value(Value::Void)) as NativeFunc);
+    env_mod.insert("set".into(), (|_, _| EvalResult::Value(Value::Void)) as NativeFunc);
+    env_mod.insert("keys".into(), (|_, _| EvalResult::Value(Value::Array(Arc::new(RefCell::new(vec![]))))) as NativeFunc);
     modules.insert("env".into(), env_mod);
 
     // --- math ---
     let mut math_mod = HashMap::new();
-    math_mod.insert("add".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.add".into(),
-        func: |args, _| { Value::Number(args.iter().map(|a| if let Value::Number(n) = a { *n } else { 0.0 }).sum()) }
-    })));
-    math_mod.insert("sub".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.sub".into(),
-        func: |args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { Value::Number(a - b) } else { Value::Void } }
-    })));
-    math_mod.insert("mul".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.mul".into(),
-        func: |args, _| { if args.is_empty() { Value::Number(0.0) } else { Value::Number(args.iter().map(|a| if let Value::Number(n) = a { *n } else { 1.0 }).product()) } }
-    })));
-    math_mod.insert("div".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.div".into(),
-        func: |args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if *b != 0.0 { Value::Number(a / b) } else { Value::Void } } else { Value::Void } }
-    })));
-    math_mod.insert("gt".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.gt".into(),
-        func: |args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if a > b { Value::Number(1.0) } else { Value::Void } } else { Value::Void } }
-    })));
-    math_mod.insert("lt".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.lt".into(),
-        func: |args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if a < b { Value::Number(1.0) } else { Value::Void } } else { Value::Void } }
-    })));
-    math_mod.insert("eq".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "math.eq".into(),
-        func: |args, _| { if let (Some(a), Some(b)) = (args.get(0), args.get(1)) { if hank_equals(a, b) { Value::Number(1.0) } else { Value::Void } } else { Value::Void } }
-    })));
+    math_mod.insert("add".into(), (|args, _| { EvalResult::Value(Value::Number(args.iter().map(|a| if let Value::Number(n) = a { *n } else { 0.0 }).sum())) }) as NativeFunc);
+    math_mod.insert("sub".into(), (|args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { EvalResult::Value(Value::Number(a - b)) } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    math_mod.insert("mul".into(), (|args, _| { if args.is_empty() { EvalResult::Value(Value::Number(0.0)) } else { EvalResult::Value(Value::Number(args.iter().map(|a| if let Value::Number(n) = a { *n } else { 1.0 }).product())) } }) as NativeFunc);
+    math_mod.insert("div".into(), (|args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if *b != 0.0 { EvalResult::Value(Value::Number(a / b)) } else { EvalResult::Value(Value::Void) } } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    math_mod.insert("gt".into(), (|args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if a > b { EvalResult::Value(Value::Number(1.0)) } else { EvalResult::Value(Value::Void) } } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    math_mod.insert("lt".into(), (|args, _| { if let (Some(Value::Number(a)), Some(Value::Number(b))) = (args.get(0), args.get(1)) { if a < b { EvalResult::Value(Value::Number(1.0) ) } else { EvalResult::Value(Value::Void) } } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    math_mod.insert("eq".into(), (|args, _| { if let (Some(a), Some(b)) = (args.get(0), args.get(1)) { if hank_equals(a, b) { EvalResult::Value(Value::Number(1.0)) } else { EvalResult::Value(Value::Void) } } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
     modules.insert("math".into(), math_mod);
 
     // --- str ---
     let mut str_mod = HashMap::new();
-    str_mod.insert("length".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "str.length".into(),
-        func: |args, _| {
-            if let Some(Value::String(s)) = args.get(0) { return Value::Number(s.chars().count() as f64); }
-            Value::Void
-        }
-    })));
-    str_mod.insert("format".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "str.format".into(),
-        func: |args, _| {
-            if args.is_empty() { return Value::Void; }
+    str_mod.insert("length".into(), (|args, _| {
+            if let Some(Value::String(s)) = args.get(0) { return EvalResult::Value(Value::Number(s.chars().count() as f64)); }
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
+    str_mod.insert("format".into(), (|args, _| {
+            if args.is_empty() { return EvalResult::Value(Value::Void); }
             let mut res = val_to_string(&args[0]);
             for i in 1..args.len() {
                 res = res.replace(&format!("%{}", i), &val_to_string(&args[i]));
             }
-            Value::String(res)
-        }
-    })));
-    str_mod.insert("concat".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "str.concat".into(),
-        func: |args, _| { Value::String(args.iter().map(|a| val_to_string(a)).collect()) }
-    })));
-    str_mod.insert("trim".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "str.trim".into(),
-        func: |args, _| { if let Some(Value::String(s)) = args.get(0) { return Value::String(s.trim().to_string()); } Value::Void }
-    })));
+            EvalResult::Value(Value::String(res))
+        }) as NativeFunc);
+    str_mod.insert("concat".into(), (|args, _| { EvalResult::Value(Value::String(args.iter().map(|a| val_to_string(a)).collect())) }) as NativeFunc);
+    str_mod.insert("trim".into(), (|args, _| { if let Some(Value::String(s)) = args.get(0) { return EvalResult::Value(Value::String(s.trim().to_string())); } EvalResult::Value(Value::Void) }) as NativeFunc);
     modules.insert("str".into(), str_mod);
 
     // --- num ---
     let mut num_mod = HashMap::new();
-    num_mod.insert("parse".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.parse".into(),
-        func: |args, _| {
-            if args.is_empty() { return Value::Void; }
+    num_mod.insert("parse".into(), (|args, _| {
+            if args.is_empty() { return EvalResult::Value(Value::Void); }
             let s = val_to_string(&args[0]);
             let mut base = if let Some(Value::Number(n)) = args.get(1) { *n as u32 } else { 0 };
 
@@ -205,23 +152,20 @@ pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
             } else { &s };
 
             if let Ok(n) = i64::from_str_radix(final_s, base) {
-                Value::Number(n as f64)
+                EvalResult::Value(Value::Number(n as f64))
             } else if base == 10 || base == 0 {
-                if let Ok(f) = s.parse::<f64>() { Value::Number(f) } else { Value::Void }
+                if let Ok(f) = s.parse::<f64>() { EvalResult::Value(Value::Number(f)) } else { EvalResult::Value(Value::Void) }
             } else {
-                Value::Void
+                EvalResult::Value(Value::Void)
             }
-        }
-    })));
-    num_mod.insert("format".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.format".into(),
-        func: |args, _| {
+        }) as NativeFunc);
+    num_mod.insert("format".into(), (|args, _| {
             if let Some(Value::Number(n)) = args.get(0) {
                 let base = if let Some(Value::Number(b)) = args.get(1) { *b as u32 } else { 10 };
-                if base < 2 || base > 36 { return Value::Void; }
+                if base < 2 || base > 36 { return EvalResult::Value(Value::Void); }
                 let val = *n as i64;
                 let chars = "0123456789abcdefghijklmnopqrstuvwxyz";
-                if val == 0 { return Value::String("0".into()); }
+                if val == 0 { return EvalResult::Value(Value::String("0".into())); }
                 let mut res = String::new();
                 let mut curr = val.abs();
                 while curr > 0 {
@@ -230,104 +174,33 @@ pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
                     curr /= base as i64;
                 }
                 if val < 0 { res.insert(0, '-'); }
-                Value::String(res)
-            } else { Value::Void }
-        }
-    })));
-    num_mod.insert("bitAnd".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.bitAnd".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            let b = if let Some(Value::Number(n)) = args.get(1) { *n as i64 } else { 0 };
-            Value::Number((a & b) as f64)
-        }
-    })));
-    num_mod.insert("bitOr".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.bitOr".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            let b = if let Some(Value::Number(n)) = args.get(1) { *n as i64 } else { 0 };
-            Value::Number((a | b) as f64)
-        }
-    })));
-    num_mod.insert("bitXor".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.bitXor".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            let b = if let Some(Value::Number(n)) = args.get(1) { *n as i64 } else { 0 };
-            Value::Number((a ^ b) as f64)
-        }
-    })));
-    num_mod.insert("bitNot".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.bitNot".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            Value::Number((!a) as f64)
-        }
-    })));
-    num_mod.insert("shiftL".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.shiftL".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            let b = if let Some(Value::Number(n)) = args.get(1) { *n as u32 } else { 0 };
-            Value::Number((a << b) as f64)
-        }
-    })));
-    num_mod.insert("shiftR".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "num.shiftR".into(),
-        func: |args, _| {
-            let a = if let Some(Value::Number(n)) = args.get(0) { *n as i64 } else { 0 };
-            let b = if let Some(Value::Number(n)) = args.get(1) { *n as u32 } else { 0 };
-            Value::Number((a >> b) as f64)
-        }
-    })));
+                EvalResult::Value(Value::String(res))
+            } else { EvalResult::Value(Value::Void) }
+        }) as NativeFunc);
     modules.insert("num".into(), num_mod);
 
     // --- logic ---
     let mut logic_mod = HashMap::new();
-    logic_mod.insert("and".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "logic.and".into(),
-        func: |args, _| {
-            if args.is_empty() { return Value::Void; }
+    logic_mod.insert("and".into(), (|args, _| {
+            if args.is_empty() { return EvalResult::Value(Value::Void); }
             let mut last = Value::Void;
-            for a in args { if matches!(a, Value::Void) { return Value::Void; } last = a.clone(); }
-            last
-        }
-    })));
-    logic_mod.insert("or".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "logic.or".into(),
-        func: |args, _| {
-            for a in args { if !matches!(a, Value::Void) { return a.clone(); } }
-            Value::Void
-        }
-    })));
-    logic_mod.insert("eq".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "logic.eq".into(),
-        func: |args, _| { if let (Some(a), Some(b)) = (args.get(0), args.get(1)) { if hank_equals(a, b) { Value::Number(1.0) } else { Value::Void } } else { Value::Void } }
-    })));
+            for a in args { if matches!(a, Value::Void) { return EvalResult::Value(Value::Void); } last = a.clone(); }
+            EvalResult::Value(last)
+        }) as NativeFunc);
+    logic_mod.insert("or".into(), (|args, _| {
+            for a in args { if !matches!(a, Value::Void) { return EvalResult::Value(a.clone()); } }
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
+    logic_mod.insert("eq".into(), (|args, _| { if let (Some(a), Some(b)) = (args.get(0), args.get(1)) { if hank_equals(a, b) { EvalResult::Value(Value::Number(1.0)) } else { EvalResult::Value(Value::Void) } } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
     modules.insert("logic".into(), logic_mod);
 
     // --- arr ---
     let mut arr_mod = HashMap::new();
-    arr_mod.insert("length".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "arr.length".into(),
-        func: |args, _| { if let Some(Value::Array(a)) = args.get(0) { Value::Number(a.borrow().len() as f64) } else { Value::Void } }
-    })));
-    arr_mod.insert("get".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "arr.get".into(),
-        func: |args, _| { if let (Some(Value::Array(a)), Some(Value::Number(n))) = (args.get(0), args.get(1)) { a.borrow().get(*n as usize).cloned().unwrap_or(Value::Void) } else { Value::Void } }
-    })));
-    arr_mod.insert("push".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "arr.push".into(),
-        func: |args, _| { if let (Some(Value::Array(a)), Some(v)) = (args.get(0), args.get(1)) { a.borrow_mut().push(v.clone()); } Value::Void }
-    })));
-    arr_mod.insert("pop".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "arr.pop".into(),
-        func: |args, _| { if let Some(Value::Array(a)) = args.get(0) { a.borrow_mut().pop().unwrap_or(Value::Void) } else { Value::Void } }
-    })));
-    arr_mod.insert("each".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "arr.each".into(),
-        func: |args, ctx| {
+    arr_mod.insert("length".into(), (|args, _| { if let Some(Value::Array(a)) = args.get(0) { EvalResult::Value(Value::Number(a.borrow().len() as f64)) } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    arr_mod.insert("get".into(), (|args, _| { if let (Some(Value::Array(a)), Some(Value::Number(n))) = (args.get(0), args.get(1)) { EvalResult::Value(a.borrow().get(*n as usize).cloned().unwrap_or(Value::Void)) } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    arr_mod.insert("push".into(), (|args, _| { if let (Some(Value::Array(a)), Some(v)) = (args.get(0), args.get(1)) { a.borrow_mut().push(v.clone()); } EvalResult::Value(Value::Void) }) as NativeFunc);
+    arr_mod.insert("pop".into(), (|args, _| { if let Some(Value::Array(a)) = args.get(0) { EvalResult::Value(a.borrow_mut().pop().unwrap_or(Value::Void)) } else { EvalResult::Value(Value::Void) } }) as NativeFunc);
+    arr_mod.insert("each".into(), (|args, ctx| {
             if let (Some(Value::Array(a)), Some(Value::Task(t))) = (args.get(0), args.get(1)) {
                 let items = a.borrow().clone();
                 for (idx, item) in items.iter().enumerate() {
@@ -338,94 +211,75 @@ pub fn get_modules() -> HashMap<String, HashMap<String, Value>> {
                     ctx.call(&Value::Task(t.clone()), call_args);
                 }
             }
-            Value::Void
-        }
-    })));
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
     modules.insert("arr".into(), arr_mod);
 
     // --- obj ---
     let mut obj_mod = HashMap::new();
-    obj_mod.insert("get".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "obj.get".into(),
-        func: |args, _| {
+    obj_mod.insert("get".into(), (|args, _| {
             if let (Some(Value::Object(m)), Some(k)) = (args.get(0), args.get(1)) {
-                m.borrow().get(&val_to_string(k)).cloned().unwrap_or(Value::Void)
-            } else { Value::Void }
-        }
-    })));
-    obj_mod.insert("keys".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "obj.keys".into(),
-        func: |args, _| {
+                EvalResult::Value(m.borrow().get(&val_to_string(k)).cloned().unwrap_or(Value::Void))
+            } else { EvalResult::Value(Value::Void) }
+        }) as NativeFunc);
+    obj_mod.insert("keys".into(), (|args, _| {
             if let Some(Value::Object(m)) = args.get(0) {
                 let mut keys: Vec<Value> = m.borrow().keys().map(|k| Value::String(k.clone())).collect();
                 keys.sort_by(|a, b| if let (Value::String(s1), Value::String(s2)) = (a, b) { s1.cmp(s2) } else { std::cmp::Ordering::Equal });
-                Value::Array(Arc::new(RefCell::new(keys)))
-            } else { Value::Void }
-        }
-    })));
+                EvalResult::Value(Value::Array(Arc::new(RefCell::new(keys))))
+            } else { EvalResult::Value(Value::Void) }
+        }) as NativeFunc);
     modules.insert("obj".into(), obj_mod);
 
     // --- json ---
     let mut json_mod = HashMap::new();
-    json_mod.insert("parse".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "json.parse".into(),
-        func: |args, _| {
+    json_mod.insert("parse".into(), (|args, _| {
             if let Some(Value::String(s)) = args.get(0) {
-                if let Ok(data) = serde_json::from_str::<serde_json::Value>(s) { return map_json_to_hank(data); }
+                if let Ok(data) = serde_json::from_str::<serde_json::Value>(s) { return EvalResult::Value(map_json_to_hank(data)); }
             }
-            Value::Void
-        }
-    })));
-    json_mod.insert("stringify".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "json.stringify".into(),
-        func: |args, _| {
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
+    json_mod.insert("stringify".into(), (|args, _| {
             if let Some(v) = args.get(0) {
                 if let Some(j) = map_hank_to_json(v) {
-                    if let Ok(s) = serde_json::to_string(&j) { return Value::String(s); }
+                    if let Ok(s) = serde_json::to_string(&j) { return EvalResult::Value(Value::String(s)); }
                 }
             }
-            Value::Void
-        }
-    })));
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
     modules.insert("json".into(), json_mod);
     
     // --- regex ---
     let mut regex_mod = HashMap::new();
-    regex_mod.insert("parse".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "regex.parse".into(),
-        func: |args, _| {
-            if args.is_empty() { return Value::Void; }
+    regex_mod.insert("parse".into(), (|args, _| {
+            if args.is_empty() { return EvalResult::Value(Value::Void); }
             let pattern = val_to_string(&args[0]);
             let flags = if args.len() > 1 { val_to_string(&args[1]) } else { "".into() };
             let mut final_pattern = pattern.clone();
             if flags.contains('i') { final_pattern = format!("(?i){}", final_pattern); }
             let re = regex_lite::Regex::new(&final_pattern).ok();
             if let Some(engine) = re {
-                Value::Opaque(Arc::new(OpaqueValue {
+                EvalResult::Value(Value::Opaque(Arc::new(OpaqueValue {
                     label: "RegExp".into(),
                     data: Box::new(engine),
-                }))
+                })))
             } else {
-                Value::Void
+                EvalResult::Value(Value::Void)
             }
-        }
-    })));
-    regex_mod.insert("match".into(), Value::Task(Arc::new(TaskValue::Native {
-        name: "regex.match".into(),
-        func: |args, _| {
-            if args.len() < 2 { return Value::Void; }
+        }) as NativeFunc);
+    regex_mod.insert("match".into(), (|args, _| {
+            if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let s = val_to_string(&args[0]);
             match &args[1] {
                 Value::Opaque(ov) if ov.label == "RegExp" => {
                     if let Some(re) = ov.data.downcast_ref::<regex_lite::Regex>() {
-                        if re.is_match(&s) { return Value::Number(1.0); }
+                        if re.is_match(&s) { return EvalResult::Value(Value::Number(1.0)); }
                     }
                 }
-                other => if s.contains(&val_to_string(other)) { return Value::Number(1.0); }
+                other => if s.contains(&val_to_string(other)) { return EvalResult::Value(Value::Number(1.0)); }
             }
-            Value::Void
-        }
-    })));
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
     modules.insert("regex".into(), regex_mod);
 
     modules

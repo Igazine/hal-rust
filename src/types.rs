@@ -77,7 +77,7 @@ pub struct Param {
     pub default_value: Option<Box<Expr>>,
 }
 
-pub type NativeFunc = fn(args: Vec<Value>, ctx: &dyn ExecutionContext) -> Value;
+pub type NativeFunc = fn(args: Vec<Value>, ctx: &dyn ExecutionContext) -> EvalResult;
 
 pub trait ExecutionContext {
     fn call(&self, task: &Value, args: Vec<Value>) -> Value;
@@ -132,6 +132,11 @@ pub trait IHankSerializable {
     fn serialize_hal(&self) -> String;
 }
 
+pub trait HankExtension {
+    fn name(&self) -> &str;
+    fn get_modules(&self) -> HashMap<String, HashMap<String, NativeFunc>>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HankError {
     // Lexical Errors (10xx)
@@ -158,7 +163,8 @@ pub enum HankError {
     TooManyArguments = 4002,
     MissingRequiredParameter = 4003,
     Halt = 4004,
-    GenericRuntimeError = 4005,
+    BitwiseOutOfBounds = 4005,
+    GenericRuntimeError = 4006,
 }
 
 #[derive(Debug, Clone)]
@@ -174,3 +180,10 @@ impl std::fmt::Display for HankErrorValue {
 }
 
 impl std::error::Error for HankErrorValue {}
+
+#[derive(Debug, Clone)]
+pub enum EvalResult {
+    Value(Value),
+    Return(Value),
+    Error(HankErrorValue),
+}

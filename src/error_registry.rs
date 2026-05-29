@@ -26,6 +26,7 @@ impl HankErrorRegistry {
         m.insert(HankError::TooManyArguments, "Too many arguments".into());
         m.insert(HankError::MissingRequiredParameter, "Missing required parameter: {0}".into());
         m.insert(HankError::Halt, "HANK_HALT:{0}".into());
+        m.insert(HankError::BitwiseOutOfBounds, "Value exceeds safe integer bounds for bitwise operation: {0}".into());
         m.insert(HankError::GenericRuntimeError, "{0}".into());
         m
     }

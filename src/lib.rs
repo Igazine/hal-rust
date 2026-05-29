@@ -4,6 +4,7 @@ pub mod parser;
 pub mod interpreter;
 pub mod runner;
 pub mod stdlib;
+pub mod ext;
 pub mod wasm;
 pub mod error_registry;
 
