@@ -131,3 +131,46 @@ pub struct TokenData {
 pub trait IHankSerializable {
     fn serialize_hal(&self) -> String;
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HankError {
+    // Lexical Errors (10xx)
+    UnexpectedCharacter = 1001,
+    UnclosedStringLiteral = 1002,
+
+    // Syntax Errors (20xx)
+    EmptyScript = 2001,
+    ExpectedMainTask = 2002,
+    UnexpectedCodeOutsideMainTask = 2003,
+    InvalidAssignmentTarget = 2004,
+    UnexpectedToken = 2005,
+    MacroRequiresString = 2006,
+    ExpectedIdentifier = 2007,
+
+    // Resolution & Runner Errors (30xx)
+    CircularDependency = 3001,
+    ResourceContentNotLoaded = 3002,
+    ScriptMustBeTask = 3003,
+    MacroResourceNotFound = 3004,
+
+    // Runtime Errors (40xx)
+    TargetNotFunction = 4001,
+    TooManyArguments = 4002,
+    MissingRequiredParameter = 4003,
+    Halt = 4004,
+    GenericRuntimeError = 4005,
+}
+
+#[derive(Debug, Clone)]
+pub struct HankErrorValue {
+    pub code: HankError,
+    pub message: String,
+}
+
+impl std::fmt::Display for HankErrorValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for HankErrorValue {}

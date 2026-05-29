@@ -1,4 +1,5 @@
-use crate::types::TokenData;
+use crate::types::{TokenData, HankError};
+use crate::error_registry::HankErrorRegistry;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
@@ -26,6 +27,7 @@ pub enum Token {
     
     Newline,
     EOF,
+    Error(String),
 }
 
 pub struct Lexer {
@@ -106,9 +108,7 @@ impl Lexer {
                 '[' => Token::LBracket,
                 ']' => Token::RBracket,
                 _ => {
-                    // Skip unknown characters or handle error
-                    self.pos += 1;
-                    continue;
+                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![char.to_string()], None, None, None).message)
                 }
             };
 
@@ -164,6 +164,9 @@ impl Lexer {
                 val.push(self.input[self.pos]);
             }
             self.pos += 1;
+        }
+        if self.pos >= self.input.len() {
+            return Token::Error(HankErrorRegistry::create(HankError::UnclosedStringLiteral, vec![], None, None, None).message);
         }
         self.pos += 1; // skip quote
         Token::String(val)

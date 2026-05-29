@@ -1,8 +1,9 @@
-use crate::types::{Expr, Value, TokenData, Param, ValueType, OpaqueValue};
+use crate::types::{Expr, Value, TokenData, Param, ValueType, OpaqueValue, HankError, HankErrorValue};
 use crate::lexer::{Token};
+use crate::error_registry::HankErrorRegistry;
 use std::collections::HashMap;
 
-pub type MacroResolver = Box<dyn Fn(String) -> Result<Expr, String>>;
+pub type MacroResolver = Box<dyn Fn(String) -> Result<Expr, HankErrorValue>>;
 
 pub struct Parser {
     tokens: Vec<(Token, TokenData)>,
@@ -21,7 +22,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, String> {
+    pub fn parse(&mut self) -> Result<Expr, HankErrorValue> {
         self.skip_newlines();
         let mut stmts = vec![];
 
@@ -32,7 +33,7 @@ impl Parser {
         }
 
         if self.is_eof() {
-            return Err("Syntax Error: Script is empty.".into());
+            return Err(self.error(HankError::EmptyScript, vec![]));
         }
 
         // 2. Parse exactly ONE TaskDef (FuncDef or Block)
@@ -41,14 +42,14 @@ impl Parser {
         } else if matches!(self.peek(), Token::LBrace) {
             self.parse_block()?
         } else {
-            return Err("Syntax Error: Expected main task definition (a closure or a block).".into());
+            return Err(self.error(HankError::ExpectedMainTask, vec![]));
         };
         stmts.push(main_task);
 
         // 3. Assert EOF
         self.skip_newlines();
         if !self.is_eof() {
-            return Err("Syntax Error: Unexpected code outside of main task. A Hank script must contain exactly one Task definition.".into());
+            return Err(self.error(HankError::UnexpectedCodeOutsideMainTask, vec![]));
         }
 
         if stmts.len() == 1 {
@@ -63,7 +64,7 @@ impl Parser {
         Ok(Expr::Block(stmts, td_root))
     }
 
-    fn parse_statement(&mut self) -> Result<Expr, String> {
+    fn parse_statement(&mut self) -> Result<Expr, HankErrorValue> {
         self.skip_newlines();
         match self.peek() {
             Token::Question => self.parse_flow_control(),
@@ -73,7 +74,7 @@ impl Parser {
         }
     }
 
-    fn parse_flow_control(&mut self) -> Result<Expr, String> {
+    fn parse_flow_control(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::Question)?;
         self.consume(Token::LParen)?;
         let condition = self.parse_expression()?;
@@ -85,25 +86,27 @@ impl Parser {
         let mut rescue = None;
         let mut catch_var = None;
         
-        let saved_pos = self.pos;
+        let mut saved_pos = self.pos;
         self.skip_newlines();
         if matches!(self.peek(), Token::Colon) {
             self.consume(Token::Colon)?;
             fallback = Some(Box::new(self.parse_block()?));
-        } else if matches!(self.peek(), Token::Rescue) {
-            // handled below
-            self.pos = saved_pos;
+            saved_pos = self.pos;
+            self.skip_newlines();
         } else {
             self.pos = saved_pos;
         }
 
-        self.skip_newlines();
         if matches!(self.peek(), Token::Rescue) {
             self.consume(Token::Rescue)?;
-            self.consume(Token::LParen)?;
-            catch_var = Some(self.consume_identifier()?);
-            self.consume(Token::RParen)?;
+            if matches!(self.peek(), Token::LParen) {
+                self.consume(Token::LParen)?;
+                catch_var = Some(self.consume_identifier()?);
+                self.consume(Token::RParen)?;
+            }
             rescue = Some(Box::new(self.parse_block()?));
+        } else {
+            self.pos = saved_pos;
         }
 
         Ok(Expr::FlowControl {
@@ -116,11 +119,11 @@ impl Parser {
         })
     }
 
-    fn parse_expression(&mut self) -> Result<Expr, String> {
+    fn parse_expression(&mut self) -> Result<Expr, HankErrorValue> {
         self.parse_assignment()
     }
 
-    fn parse_assignment(&mut self) -> Result<Expr, String> {
+    fn parse_assignment(&mut self) -> Result<Expr, HankErrorValue> {
         let expr = self.parse_primary()?;
 
         if matches!(self.peek(), Token::Assign) {
@@ -129,14 +132,14 @@ impl Parser {
                 let value = self.parse_expression()?;
                 return Ok(Expr::Assign(name, Box::new(value), td));
             } else {
-                return Err(self.error("Invalid assignment target"));
+                return Err(self.error(HankError::InvalidAssignmentTarget, vec![]));
             }
         }
 
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+    fn parse_primary(&mut self) -> Result<Expr, HankErrorValue> {
         let (token, td) = self.tokens[self.pos].clone();
         let expr = match token {
             Token::At => self.parse_include()?,
@@ -179,13 +182,14 @@ impl Parser {
                 Expr::Literal(Value::Number(n), td)
             },
             Token::Caret => self.parse_return()?,
-            _ => return Err(self.error(&format!("Unexpected token: {:?}", token))),
+            Token::Error(msg) => return Err(HankErrorValue { code: HankError::UnexpectedCharacter, message: msg }),
+            _ => return Err(self.error(HankError::UnexpectedToken, vec![format!("{:?}", token), String::new()])),
         };
         
         self.finish_primary(expr)
     }
 
-    fn finish_primary(&mut self, mut expr: Expr) -> Result<Expr, String> {
+    fn finish_primary(&mut self, mut expr: Expr) -> Result<Expr, HankErrorValue> {
         loop {
             let (token, td) = self.peek_full();
             match token {
@@ -217,7 +221,7 @@ impl Parser {
         p < self.tokens.len() && matches!(self.tokens[p].0, Token::LBrace)
     }
 
-    fn parse_func_def(&mut self) -> Result<Expr, String> {
+    fn parse_func_def(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.peek_td();
         self.consume(Token::LParen)?;
         let mut params = vec![];
@@ -233,7 +237,7 @@ impl Parser {
         Ok(Expr::FuncDef(params, Box::new(body), td))
     }
 
-    fn parse_param(&mut self) -> Result<Param, String> {
+    fn parse_param(&mut self) -> Result<Param, HankErrorValue> {
         let mut is_optional = false;
         if matches!(self.peek(), Token::Question) {
             self.consume(Token::Question)?;
@@ -249,7 +253,7 @@ impl Parser {
         Ok(Param { name, is_optional, default_value })
     }
 
-    fn parse_block(&mut self) -> Result<Expr, String> {
+    fn parse_block(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::LBrace)?;
         let mut stmts = vec![];
         while !matches!(self.peek(), Token::RBrace) && !self.is_eof() {
@@ -274,7 +278,7 @@ impl Parser {
         false
     }
 
-    fn parse_object_literal(&mut self) -> Result<Expr, String> {
+    fn parse_object_literal(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::LBrace)?;
         let mut fields = HashMap::new();
         while !matches!(self.peek(), Token::RBrace) && !self.is_eof() {
@@ -289,7 +293,7 @@ impl Parser {
         Ok(Expr::Object(fields, td))
     }
 
-    fn parse_array_literal(&mut self) -> Result<Expr, String> {
+    fn parse_array_literal(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::LBracket)?;
         let mut items = vec![];
         while !matches!(self.peek(), Token::RBracket) && !self.is_eof() {
@@ -302,7 +306,7 @@ impl Parser {
         Ok(Expr::Array(items, td))
     }
 
-    fn parse_arg_list(&mut self) -> Result<Vec<Expr>, String> {
+    fn parse_arg_list(&mut self) -> Result<Vec<Expr>, HankErrorValue> {
         self.consume(Token::LParen)?;
         let mut args = vec![];
         self.skip_newlines();
@@ -322,7 +326,7 @@ impl Parser {
         Ok(args)
     }
 
-    fn parse_return(&mut self) -> Result<Expr, String> {
+    fn parse_return(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::Caret)?;
         let mut val = Expr::Literal(Value::Void, td.clone());
         if !self.is_eof() && !matches!(self.peek(), Token::Newline | Token::RBrace | Token::RBracket | Token::Comma | Token::RParen) {
@@ -331,11 +335,11 @@ impl Parser {
         Ok(Expr::UnOp("^".into(), Box::new(val), td))
     }
 
-    fn parse_include(&mut self) -> Result<Expr, String> {
+    fn parse_include(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::At)?;
         let raw_path = match self.peek() {
             Token::String(s) => { self.pos += 1; s },
-            _ => return Err(self.error("Syntax Error: The '@' macro strictly requires a string literal path (e.g., @ \"utils\"). Identifier shorthand is not allowed.")),
+            _ => return Err(self.error(HankError::MacroRequiresString, vec![])),
         };
 
         let task_ast = (self.macro_resolver)(raw_path.clone())?;
@@ -344,23 +348,23 @@ impl Parser {
         Ok(Expr::Assign(task_name, Box::new(task_ast), td))
     }
 
-    fn consume_identifier(&mut self) -> Result<String, String> {
+    fn consume_identifier(&mut self) -> Result<String, HankErrorValue> {
         match self.peek() {
             Token::Identifier(id) => {
                 self.pos += 1;
                 Ok(id)
             },
-            _ => Err(self.error(&format!("Expected identifier, found {:?}", self.peek()))),
+            _ => Err(self.error(HankError::ExpectedIdentifier, vec![format!("{:?}", self.peek())])),
         }
     }
 
-    fn consume(&mut self, token: Token) -> Result<TokenData, String> {
+    fn consume(&mut self, token: Token) -> Result<TokenData, HankErrorValue> {
         let (t, td) = self.tokens[self.pos].clone();
         if t == token {
             self.pos += 1;
             Ok(td)
         } else {
-            Err(self.error(&format!("Expected {:?}, found {:?}", token, t)))
+            Err(self.error(HankError::UnexpectedToken, vec![format!("{:?}", token), format!("{:?}", t)]))
         }
     }
 
@@ -386,8 +390,8 @@ impl Parser {
         self.pos >= self.tokens.len() || matches!(self.tokens[self.pos].0, Token::EOF)
     }
 
-    fn error(&self, msg: &str) -> String {
+    fn error(&self, code: HankError, args: Vec<String>) -> HankErrorValue {
         let td = self.peek_td();
-        format!("ERROR: {} in {} at\n\t{}:\t{}", msg, self.filename, td.line, td.line_text)
+        HankErrorRegistry::create(code, args, Some(&self.filename), Some(td.line), Some(&td.line_text))
     }
 }

@@ -5,6 +5,7 @@ pub mod interpreter;
 pub mod runner;
 pub mod stdlib;
 pub mod wasm;
+pub mod error_registry;
 
 pub use types::*;
 pub use lexer::{Lexer, Token};
