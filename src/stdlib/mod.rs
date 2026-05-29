@@ -100,6 +100,18 @@ pub fn get_stdlib_modules() -> HashMap<String, HashMap<String, NativeFunc>> {
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
+    runtime_mod.insert("while".into(), (|args, ctx| {
+            if args.len() < 2 { return EvalResult::Value(Value::Void); }
+            let cond = &args[0];
+            let body = &args[1];
+            let mut last = Value::Void;
+            loop {
+                let cond_val = ctx.call(cond, vec![]);
+                if matches!(cond_val, Value::Void) { break; }
+                last = ctx.call(body, vec![]);
+            }
+            EvalResult::Value(last)
+        }) as NativeFunc);
     modules.insert("runtime".into(), runtime_mod);
 
     // --- env ---

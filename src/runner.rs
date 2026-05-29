@@ -1,4 +1,4 @@
-use crate::types::{Value, Scope, Expr, Arc, Resource, HankError, HankErrorValue, EvalResult};
+use crate::types::{Value, Scope, Expr, Arc, Resource, HankError, HankErrorValue, TaskValue, HankExtension, EvalResult};
 use crate::lexer::{Lexer, Token};
 use crate::parser::Parser;
 use crate::interpreter::{Interpreter, HankScope};
