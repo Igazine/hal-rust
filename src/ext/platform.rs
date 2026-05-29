@@ -1,4 +1,5 @@
-use crate::types::{Value, NativeFunc, HankExtension, EvalResult, HankError, HankErrorRegistry};
+use crate::types::{Value, NativeFunc, HankExtension, EvalResult, HankError};
+use crate::error_registry::HankErrorRegistry;
 use std::collections::HashMap;
 
 const SAFE_INT_MAX: f64 = 9007199254740991.0;

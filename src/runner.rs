@@ -1,7 +1,7 @@
-use crate::types::{Value, Scope, Expr, Arc, Resource, HankError, HankErrorValue};
+use crate::types::{Value, Scope, Expr, Arc, Resource, HankError, HankErrorValue, EvalResult};
 use crate::lexer::{Lexer, Token};
 use crate::parser::Parser;
-use crate::interpreter::{Interpreter, EvalResult, HankScope};
+use crate::interpreter::{Interpreter, HankScope};
 use crate::error_registry::HankErrorRegistry;
 use std::collections::HashMap;
 use std::cell::RefCell;
@@ -20,7 +20,7 @@ impl Runner {
     pub fn new() -> Self {
         Self {
             resource_cache: RefCell::new(HashMap::new()),
-            core_scope: Arc::new(HankScope::new()),
+            core_scope: Arc::new(HankScope::new(None)),
         }
     }
 

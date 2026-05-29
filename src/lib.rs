@@ -11,5 +11,5 @@ pub mod error_registry;
 pub use types::*;
 pub use lexer::{Lexer, Token};
 pub use parser::Parser;
-pub use interpreter::{Interpreter, HankScope, EvalResult};
+pub use interpreter::{Interpreter, HankScope};
 pub use runner::Runner;

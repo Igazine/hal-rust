@@ -14,6 +14,14 @@ pub struct HankScope {
     pub parent: Option<Arc<dyn Scope>>,
 }
 
+impl std::fmt::Debug for HankScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HankScope")
+            .field("values", &self.values)
+            .finish()
+    }
+}
+
 impl HankScope {
     pub fn new(parent: Option<Arc<dyn Scope>>) -> Self {
         Self {

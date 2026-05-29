@@ -1,4 +1,5 @@
-use crate::types::{Value, TaskValue, Scope, OpaqueValue, Arc, EvalResult, HankError, HankErrorRegistry, HankErrorValue, NativeFunc, HankExtension, ExecutionContext, Expr};
+use crate::types::{Value, TaskValue, Scope, OpaqueValue, Arc, EvalResult, HankError, HankErrorValue, NativeFunc, HankExtension, ExecutionContext, Expr};
+use crate::error_registry::HankErrorRegistry;
 use std::collections::HashMap;
 use std::cell::RefCell;
 
