@@ -80,9 +80,15 @@ impl Parser {
 
     fn parse_flow_control(&mut self) -> Result<Expr, HankErrorValue> {
         let td = self.consume(Token::Question)?;
-        self.consume(Token::LParen)?;
-        let condition = self.parse_expression()?;
-        self.consume(Token::RParen)?;
+        
+        let condition = if matches!(self.peek(), Token::LParen) {
+            self.pos += 1;
+            let cond = self.parse_expression()?;
+            self.consume(Token::RParen)?;
+            cond
+        } else {
+            self.parse_expression()?
+        };
         
         let success = self.parse_block()?;
         
