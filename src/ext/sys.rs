@@ -1,8 +1,14 @@
-use crate::types::{Value, NativeFunc, HankExtension, EvalResult, Arc, ValueType, ErrorValue, HankError, OpaqueValue};
+use crate::types::{Value, NativeFunc, HankExtension, EvalResult, Arc, ValueType, ErrorValue, HankError, OpaqueValue, ExecutionContext};
 use std::collections::HashMap;
 use std::cell::RefCell;
 
 pub struct SysExtension;
+
+fn wrap_native<F>(f: F) -> NativeFunc 
+where F: for<'a> Fn(Vec<Value>, &'a dyn ExecutionContext) -> EvalResult + 'static 
+{
+    Arc::new(f)
+}
 
 impl HankExtension for SysExtension {
     fn name(&self) -> &str { "SysExtension" }
@@ -10,47 +16,47 @@ impl HankExtension for SysExtension {
         let mut tasks = HashMap::new();
 
         // --- host ---
-        tasks.insert("host_cwd".into(), (|_, _| {
+        tasks.insert("host_cwd".into(), wrap_native(|_, _| {
             let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().to_string();
             EvalResult::Value(Value::String(cwd))
-        }) as NativeFunc);
-        tasks.insert("host_pid".into(), (|_, _| {
+        }));
+        tasks.insert("host_pid".into(), wrap_native(|_, _| {
             EvalResult::Value(Value::Number(std::process::id() as f64))
-        }) as NativeFunc);
-        tasks.insert("host_isRoot".into(), (|_, _| {
+        }));
+        tasks.insert("host_isRoot".into(), wrap_native(|_, _| {
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
+        }));
 
         // --- os ---
-        tasks.insert("os_type".into(), (|_, _| {
+        tasks.insert("os_type".into(), wrap_native(|_, _| {
             EvalResult::Value(Value::String(std::env::consts::OS.to_string()))
-        }) as NativeFunc);
-        tasks.insert("os_arch".into(), (|_, _| {
+        }));
+        tasks.insert("os_arch".into(), wrap_native(|_, _| {
             EvalResult::Value(Value::String(std::env::consts::ARCH.to_string()))
-        }) as NativeFunc);
-        tasks.insert("os_memory".into(), (|_, _| {
+        }));
+        tasks.insert("os_memory".into(), wrap_native(|_, _| {
             let mut fields = HashMap::new();
             fields.insert("total".into(), Value::Number(0.0));
             fields.insert("free".into(), Value::Number(0.0));
             fields.insert("used".into(), Value::Number(0.0));
             EvalResult::Value(Value::Map(Arc::new(RefCell::new(fields))))
-        }) as NativeFunc);
-        tasks.insert("os_cpu".into(), (|_, _| {
+        }));
+        tasks.insert("os_cpu".into(), wrap_native(|_, _| {
             EvalResult::Value(Value::Number(0.0))
-        }) as NativeFunc);
+        }));
 
         // --- fs ---
-        tasks.insert("fs_exists".into(), (|args, _| {
+        tasks.insert("fs_exists".into(), wrap_native(|args: Vec<Value>, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
-                    if std::path::Path::new(path).exists() { return EvalResult::Value(Value::Number(1.0)); }
+                    if std::path::Path::new(&path).exists() { return EvalResult::Value(Value::Number(1.0)); }
                 } else {
                     return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs_exists".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
-        tasks.insert("fs_read".into(), (|args, _| {
+        }));
+        tasks.insert("fs_read".into(), wrap_native(|args: Vec<Value>, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if let Ok(content) = std::fs::read_to_string(path) { return EvalResult::Value(Value::String(content)); }
@@ -59,8 +65,8 @@ impl HankExtension for SysExtension {
                 }
             }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
-        tasks.insert("fs_write".into(), (|args, _| {
+        }));
+        tasks.insert("fs_write".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let path = match args.get(0).unwrap() {
                 Value::String(s) => s,
@@ -72,8 +78,8 @@ impl HankExtension for SysExtension {
             };
             if std::fs::write(path, content).is_ok() { return EvalResult::Value(Value::Number(1.0)); }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
-        tasks.insert("fs_deleteFile".into(), (|args, _| {
+        }));
+        tasks.insert("fs_deleteFile".into(), wrap_native(|args: Vec<Value>, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if std::fs::remove_file(path).is_ok() { return EvalResult::Value(Value::Number(1.0)); }
@@ -82,8 +88,8 @@ impl HankExtension for SysExtension {
                 }
             }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
-        tasks.insert("fs_stat".into(), (|args, _| {
+        }));
+        tasks.insert("fs_stat".into(), wrap_native(|args: Vec<Value>, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if let Ok(meta) = std::fs::metadata(path) {
@@ -102,16 +108,21 @@ impl HankExtension for SysExtension {
                 }
             }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
+        }));
 
         // --- proc ---
-        tasks.insert("proc_run".into(), (|args, _| {
+        tasks.insert("proc_run".into(), wrap_native(|args: Vec<Value>, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(cmd) = val {
                     let mut command = std::process::Command::new(cmd);
                     if let Some(Value::Array(a)) = args.get(1) {
                         for arg in a.borrow().iter() {
-                            command.arg(val_to_string(arg));
+                            let s = match arg {
+                                Value::String(s) => s.clone(),
+                                Value::Number(n) => n.to_string(),
+                                _ => "Void".into(),
+                            };
+                            command.arg(s);
                         }
                     }
                     if let Ok(output) = command.output() {
@@ -126,21 +137,8 @@ impl HankExtension for SysExtension {
                 }
             }
             EvalResult::Value(Value::Void)
-        }) as NativeFunc);
+        }));
 
         tasks
-    }
-}
-
-fn val_to_string(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Void => "Void".into(),
-        Value::Array(_) => "[Array]".into(),
-        Value::Map(_) => "[Map]".into(),
-        Value::Opaque(ov) => format!("[Opaque:{}]", ov.label),
-        Value::Task(_) => "[Task]".into(),
-        Value::Error(e) => format!("[Error:{:?}]", e.code),
     }
 }

@@ -1,4 +1,4 @@
-use crate::types::{Value, NativeFunc, HankExtension, EvalResult, HankError, ValueType, ErrorValue, Arc};
+use crate::types::{Value, NativeFunc, HankExtension, EvalResult, HankError, ValueType, ErrorValue, Arc, ExecutionContext};
 use std::collections::HashMap;
 
 const SAFE_INT_MAX: f64 = 9007199254740991.0;
@@ -24,6 +24,12 @@ fn from_safe_int(n: i64, task_name: &str) -> Result<f64, Value> {
     Ok(f)
 }
 
+fn wrap_native<F>(f: F) -> NativeFunc 
+where F: for<'a> Fn(Vec<Value>, &'a dyn ExecutionContext) -> EvalResult + 'static 
+{
+    Arc::new(f)
+}
+
 pub struct PlatformExtension;
 
 impl HankExtension for PlatformExtension {
@@ -31,7 +37,7 @@ impl HankExtension for PlatformExtension {
     fn get_tasks(&self) -> HashMap<String, NativeFunc> {
         let mut tasks = HashMap::new();
 
-        tasks.insert("bin_and".into(), (|args, _| {
+        tasks.insert("bin_and".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -47,9 +53,9 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
-        tasks.insert("bin_or".into(), (|args, _| {
+        tasks.insert("bin_or".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -65,9 +71,9 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
-        tasks.insert("bin_xor".into(), (|args, _| {
+        tasks.insert("bin_xor".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -83,9 +89,9 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
-        tasks.insert("bin_not".into(), (|args, _| {
+        tasks.insert("bin_not".into(), wrap_native(|args: Vec<Value>, _| {
             if args.is_empty() { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -96,9 +102,9 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
-        tasks.insert("bin_shiftL".into(), (|args, _| {
+        tasks.insert("bin_shiftL".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -113,9 +119,9 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
-        tasks.insert("bin_shiftR".into(), (|args, _| {
+        tasks.insert("bin_shiftR".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let a = match args.get(0).unwrap() {
                 Value::Number(n) => *n,
@@ -130,7 +136,7 @@ impl HankExtension for PlatformExtension {
                 Ok(f) => EvalResult::Value(Value::Number(f)),
                 Err(e) => EvalResult::Error(e)
             }
-        }) as NativeFunc);
+        }));
 
         tasks
     }

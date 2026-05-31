@@ -86,7 +86,7 @@ pub struct Param {
     pub default_value: Option<Box<Expr>>,
 }
 
-pub type NativeFunc = fn(args: Vec<Value>, ctx: &dyn ExecutionContext) -> EvalResult;
+pub type NativeFunc = Arc<dyn for<'a> Fn(Vec<Value>, &'a dyn ExecutionContext) -> EvalResult + 'static>;
 
 pub trait ExecutionContext {
     fn call(&self, task: &Value, args: Vec<Value>) -> Value;

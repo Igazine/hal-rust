@@ -108,24 +108,14 @@ impl Lexer {
                 '}' => Token::RBrace,
                 '[' => Token::LBracket,
                 ']' => Token::RBracket,
-                '.' => {
-                    self.pos += 1;
-                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![".".to_string()], None, Some(self.line), Some(self.pos - self.line_start + 1), Some(&self.get_current_line_text())).message)
-                }
                 _ => {
-                    self.pos += 1;
-                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![char.to_string()], None, None, None, None).message)
+                    let msg = HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![char.to_string()], None, Some(self.line), Some(self.pos - self.line_start + 1), Some(&self.get_current_line_text())).message;
+                    Token::Error(msg)
                 }
             };
 
-            if token != Token::Error("".to_string()) { // Dummy check to avoid double-increment for '.' and '_' match arms
-                if char != '.' { // Dot and _ already incremented
-                     self.pos += 1;
-                }
-                tokens.push((token, td));
-            } else {
-                 tokens.push((token, td));
-            }
+            self.pos += 1;
+            tokens.push((token, td));
         }
 
         tokens.push((Token::EOF, self.td()));
@@ -173,11 +163,12 @@ impl Lexer {
         if self.pos < self.input.len() {
             let c = self.input[self.pos];
             if c.is_ascii_alphabetic() || c == '_' {
+                let suffix_start = self.pos;
                 while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_') {
                     self.pos += 1;
                 }
-                let full: String = self.input[start..self.pos].iter().collect();
-                return Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![full], None, None, None, None).message);
+                let full: String = self.input[suffix_start..self.pos].iter().collect();
+                return Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![full], None, Some(self.line), Some(suffix_start - self.line_start + 1), Some(&self.get_current_line_text())).message);
             }
         }
 
@@ -195,6 +186,7 @@ impl Lexer {
     }
 
     fn read_string(&mut self, quote: char) -> Token {
+        let start = self.pos;
         self.pos += 1; // skip quote
         let mut val = String::new();
         while self.pos < self.input.len() && self.input[self.pos] != quote {
@@ -212,7 +204,7 @@ impl Lexer {
             self.pos += 1;
         }
         if self.pos >= self.input.len() {
-            return Token::Error(HankErrorRegistry::create(HankError::UnclosedStringLiteral, vec![], None, None, None, None).message);
+            return Token::Error(HankErrorRegistry::create(HankError::UnclosedStringLiteral, vec![], None, Some(self.line), Some(start - self.line_start + 1), Some(&self.get_current_line_text())).message);
         }
         self.pos += 1; // skip quote
         Token::String(val)
