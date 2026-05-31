@@ -129,7 +129,7 @@ fn create_runner() -> Runner {
     runner.register_localization(loc);
 
     // Register Extensions (Batteries included, but disconnected)
-    runner.register_extension(Box::new(stdlib::StdLib));
+    runner.register_extension(Box::new(stdlib::StdLib::new()));
     runner.register_extension(Box::new(PlatformExtension));
     runner.register_extension(Box::new(SysExtension));
 
