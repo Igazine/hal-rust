@@ -137,21 +137,6 @@ impl Interpreter {
                 };
                 EvalResult::Value(val)
             },
-            Expr::Field(coll_expr, field_name, _) => {
-                match self.eval_in_scope(coll_expr, scope) {
-                    EvalResult::Value(Value::Map(map)) => {
-                        EvalResult::Value(map.borrow().get(field_name).cloned().unwrap_or(Value::Void))
-                    },
-                    EvalResult::Value(Value::Array(vec)) if field_name == "length" => {
-                        EvalResult::Value(Value::Number(vec.borrow().len() as f64))
-                    },
-                    EvalResult::Value(Value::String(s)) if field_name == "length" => {
-                        EvalResult::Value(Value::Number(s.len() as f64))
-                    },
-                    EvalResult::Value(_) => EvalResult::Value(Value::Void),
-                    other => other,
-                }
-            },
             Expr::FuncDef(params, body, _) => {
                 EvalResult::Value(Value::Task(Arc::new(TaskValue::User {
                     name: "anonymous".into(),

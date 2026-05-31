@@ -35,22 +35,17 @@ impl Runner {
         }
     }
 
-    pub fn register_module(&self, name: &str, tasks: HashMap<String, crate::types::NativeFunc>) {
-        let mut module_obj = HashMap::new();
+    pub fn register_tasks(&self, tasks: HashMap<String, crate::types::NativeFunc>) {
         for (t_name, func) in tasks {
-            module_obj.insert(t_name.clone(), Value::Task(Arc::new(crate::types::TaskValue::Native {
-                name: format!("{}.{}", name, t_name),
+            self.core_scope.set(&t_name.clone(), Value::Task(Arc::new(crate::types::TaskValue::Native {
+                name: t_name,
                 func,
             })));
         }
-        self.core_scope.set(name, Value::Map(Arc::new(RefCell::new(module_obj))));
     }
 
     pub fn register_extension(&self, ext: Box<dyn crate::types::HankExtension>) {
-        let mods = ext.get_modules();
-        for (name, tasks) in mods {
-            self.register_module(&name, tasks);
-        }
+        self.register_tasks(ext.get_tasks());
     }
 
     /**
@@ -66,7 +61,7 @@ impl Runner {
 
         // Circular Dependency Check
         if stack.borrow().contains(&resource.id().to_string()) {
-            return Err(HankErrorRegistry::create(HankError::CircularDependency, vec![resource.id().to_string()], None, None, None));
+            return Err(HankErrorRegistry::create(HankError::CircularDependency, vec![resource.id().to_string()], None, None, None, None));
         }
 
         // Reconcile with cache
@@ -80,9 +75,16 @@ impl Runner {
             }
         };
 
-        active_resource.load().map_err(|e| HankErrorValue { code: HankError::ResourceContentNotLoaded, message: e })?;
+        active_resource.load().map_err(|e| HankErrorValue { 
+            code: HankError::ResourceContentNotLoaded, 
+            message: e,
+            filename: active_resource.id().to_string(),
+            line: 0,
+            column: 0,
+            line_text: "".into(),
+        })?;
         let content = active_resource.content().ok_or_else(|| {
-            HankErrorRegistry::create(HankError::ResourceContentNotLoaded, vec![active_resource.id().to_string()], None, None, None)
+            HankErrorRegistry::create(HankError::ResourceContentNotLoaded, vec![active_resource.id().to_string()], None, None, None, None)
         })?;
 
         stack.borrow_mut().push(active_resource.id().to_string());
@@ -96,7 +98,7 @@ impl Runner {
 
         let mut parser = Parser::new(tokens, active_resource.id().to_string(), Box::new(move |macro_path| {
             let m_res = active_resource_inner.resolve(&macro_path).map_err(|e| {
-                HankErrorRegistry::create(HankError::MacroResourceNotFound, vec![macro_path.clone()], None, None, None)
+                HankErrorRegistry::create(HankError::MacroResourceNotFound, vec![macro_path.clone()], None, None, None, None)
             })?;
             // SAFETY: We know the Runner exists because we are running inside its run/load method.
             unsafe {
@@ -140,7 +142,7 @@ impl Runner {
         } else if let Value::Error(_) = script_res {
             Ok(script_res)
         } else {
-            Err(HankErrorRegistry::create(HankError::ScriptMustBeTask, vec![], None, None, None))
+            Err(HankErrorRegistry::create(HankError::ScriptMustBeTask, vec![], None, None, None, None))
         }
     }
 }

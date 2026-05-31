@@ -15,7 +15,6 @@ pub enum Token {
     Hash,      // #
     Not,       // !
     Caret,     // ^
-    Dot,       // .
     Comma,     // ,
     
     LParen,    // (
@@ -55,9 +54,10 @@ impl Lexer {
 
             if char.is_whitespace() {
                 if char == '\n' {
-                    tokens.push((Token::Newline, self.td()));
-                    self.line += 1;
+                    let td = self.td();
                     self.pos += 1;
+                    tokens.push((Token::Newline, td));
+                    self.line += 1;
                     self.line_start = self.pos;
                 } else {
                     self.pos += 1;
@@ -70,23 +70,25 @@ impl Lexer {
                 continue;
             }
 
+            let td = self.td();
+
             if char == '-' && self.peek().map(|c| c.is_ascii_digit()).unwrap_or(false) {
-                tokens.push((self.read_number(), self.td()));
+                tokens.push((self.read_number(), td));
                 continue;
             }
 
             if char.is_ascii_digit() {
-                tokens.push((self.read_number(), self.td()));
+                tokens.push((self.read_number(), td));
                 continue;
             }
 
             if char.is_alphabetic() || char == '_' {
-                tokens.push((self.read_identifier(), self.td()));
+                tokens.push((self.read_identifier(), td));
                 continue;
             }
 
             if char == '"' || char == '\'' {
-                tokens.push((self.read_string(char), self.td()));
+                tokens.push((self.read_string(char), td));
                 continue;
             }
 
@@ -99,7 +101,6 @@ impl Lexer {
                 '#' => Token::Hash,
                 '!' => Token::Not,
                 '^' => Token::Caret,
-                '.' => Token::Dot,
                 ',' => Token::Comma,
                 '(' => Token::LParen,
                 ')' => Token::RParen,
@@ -107,13 +108,24 @@ impl Lexer {
                 '}' => Token::RBrace,
                 '[' => Token::LBracket,
                 ']' => Token::RBracket,
+                '.' => {
+                    self.pos += 1;
+                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![".".to_string()], None, Some(self.line), Some(self.pos - self.line_start + 1), Some(&self.get_current_line_text())).message)
+                }
                 _ => {
-                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![char.to_string()], None, None, None).message)
+                    self.pos += 1;
+                    Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![char.to_string()], None, None, None, None).message)
                 }
             };
 
-            tokens.push((token, self.td()));
-            self.pos += 1;
+            if token != Token::Error("".to_string()) { // Dummy check to avoid double-increment for '.' and '_' match arms
+                if char != '.' { // Dot and _ already incremented
+                     self.pos += 1;
+                }
+                tokens.push((token, td));
+            } else {
+                 tokens.push((token, td));
+            }
         }
 
         tokens.push((Token::EOF, self.td()));
@@ -128,14 +140,48 @@ impl Lexer {
 
     fn read_number(&mut self) -> Token {
         let start = self.pos;
+        let mut has_dot = false;
+        
         if self.input[self.pos] == '-' {
             self.pos += 1;
         }
-        while self.pos < self.input.len() && (self.input[self.pos].is_ascii_digit() || self.input[self.pos] == '.') {
-            self.pos += 1;
+
+        while self.pos < self.input.len() {
+            let c = self.input[self.pos];
+            if c == '.' {
+                if has_dot {
+                    break;
+                }
+                has_dot = true;
+                self.pos += 1;
+            } else if c.is_ascii_digit() {
+                self.pos += 1;
+            } else {
+                break;
+            }
         }
+
+        // Roll back trailing dots
+        while self.pos > start && self.input[self.pos - 1] == '.' {
+            self.pos -= 1;
+        }
+
         let s: String = self.input[start..self.pos].iter().collect();
-        Token::Number(s.parse().unwrap_or(0.0))
+        let val = s.parse::<f64>().unwrap_or(0.0);
+
+        // Check for illegal suffix
+        if self.pos < self.input.len() {
+            let c = self.input[self.pos];
+            if c.is_ascii_alphabetic() || c == '_' {
+                while self.pos < self.input.len() && (self.input[self.pos].is_alphanumeric() || self.input[self.pos] == '_') {
+                    self.pos += 1;
+                }
+                let full: String = self.input[start..self.pos].iter().collect();
+                return Token::Error(HankErrorRegistry::create(HankError::UnexpectedCharacter, vec![full], None, None, None, None).message);
+            }
+        }
+
+        Token::Number(val)
     }
 
     fn read_identifier(&mut self) -> Token {
@@ -166,7 +212,7 @@ impl Lexer {
             self.pos += 1;
         }
         if self.pos >= self.input.len() {
-            return Token::Error(HankErrorRegistry::create(HankError::UnclosedStringLiteral, vec![], None, None, None).message);
+            return Token::Error(HankErrorRegistry::create(HankError::UnclosedStringLiteral, vec![], None, None, None, None).message);
         }
         self.pos += 1; // skip quote
         Token::String(val)
@@ -179,6 +225,7 @@ impl Lexer {
     fn td(&self) -> TokenData {
         TokenData {
             line: self.line,
+            column: self.pos - self.line_start + 1,
             line_text: self.get_current_line_text(),
         }
     }

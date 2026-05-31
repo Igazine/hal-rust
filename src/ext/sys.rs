@@ -6,86 +6,84 @@ pub struct SysExtension;
 
 impl HankExtension for SysExtension {
     fn name(&self) -> &str { "SysExtension" }
-    fn get_modules(&self) -> HashMap<String, HashMap<String, NativeFunc>> {
-        let mut modules = HashMap::new();
+    fn get_tasks(&self) -> HashMap<String, NativeFunc> {
+        let mut tasks = HashMap::new();
 
         // --- host ---
-        let mut host_mod = HashMap::new();
-        host_mod.insert("cwd".into(), (|_, _| {
+        tasks.insert("host_cwd".into(), (|_, _| {
             let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().to_string();
             EvalResult::Value(Value::String(cwd))
         }) as NativeFunc);
-        host_mod.insert("pid".into(), (|_, _| {
+        tasks.insert("host_pid".into(), (|_, _| {
             EvalResult::Value(Value::Number(std::process::id() as f64))
         }) as NativeFunc);
-        modules.insert("host".into(), host_mod);
+        tasks.insert("host_isRoot".into(), (|_, _| {
+            EvalResult::Value(Value::Void)
+        }) as NativeFunc);
 
         // --- os ---
-        let mut os_mod = HashMap::new();
-        os_mod.insert("type".into(), (|_, _| {
+        tasks.insert("os_type".into(), (|_, _| {
             EvalResult::Value(Value::String(std::env::consts::OS.to_string()))
         }) as NativeFunc);
-        os_mod.insert("arch".into(), (|_, _| {
+        tasks.insert("os_arch".into(), (|_, _| {
             EvalResult::Value(Value::String(std::env::consts::ARCH.to_string()))
         }) as NativeFunc);
-        os_mod.insert("memory".into(), (|_, _| {
+        tasks.insert("os_memory".into(), (|_, _| {
             let mut fields = HashMap::new();
             fields.insert("total".into(), Value::Number(0.0));
             fields.insert("free".into(), Value::Number(0.0));
             fields.insert("used".into(), Value::Number(0.0));
             EvalResult::Value(Value::Map(Arc::new(RefCell::new(fields))))
         }) as NativeFunc);
-        os_mod.insert("cpu".into(), (|_, _| {
+        tasks.insert("os_cpu".into(), (|_, _| {
             EvalResult::Value(Value::Number(0.0))
         }) as NativeFunc);
-        modules.insert("os".into(), os_mod);
 
         // --- fs ---
-        let mut fs_mod = HashMap::new();
-        fs_mod.insert("exists".into(), (|args, _| {
+        tasks.insert("fs_exists".into(), (|args, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if std::path::Path::new(path).exists() { return EvalResult::Value(Value::Number(1.0)); }
                 } else {
-                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs.exists".into())] })));
+                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs_exists".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        fs_mod.insert("read".into(), (|args, _| {
+        tasks.insert("fs_read".into(), (|args, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if let Ok(content) = std::fs::read_to_string(path) { return EvalResult::Value(Value::String(content)); }
                 } else {
-                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs.read".into())] })));
+                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs_read".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        fs_mod.insert("write".into(), (|args, _| {
+        tasks.insert("fs_write".into(), (|args, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             let path = match args.get(0).unwrap() {
                 Value::String(s) => s,
-                other => return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", other.get_type())), Value::String("fs.write".into())] })))
+                other => return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", other.get_type())), Value::String("fs_write".into())] })))
             };
             let content = match args.get(1).unwrap() {
                 Value::String(s) => s,
-                other => return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", other.get_type())), Value::String("fs.write".into())] })))
+                other => return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", other.get_type())), Value::String("fs_write".into())] })))
             };
             if std::fs::write(path, content).is_ok() { return EvalResult::Value(Value::Number(1.0)); }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        fs_mod.insert("deleteFile".into(), (|args, _| {
+        tasks.insert("fs_deleteFile".into(), (|args, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if std::fs::remove_file(path).is_ok() { return EvalResult::Value(Value::Number(1.0)); }
                 } else {
-                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs.deleteFile".into())] })));
+                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs_deleteFile".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        fs_mod.insert("stat".into(), (|args, _| {
+        tasks.insert("fs_stat".into(), (|args, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(path) = val {
                     if let Ok(meta) = std::fs::metadata(path) {
@@ -100,16 +98,14 @@ impl HankExtension for SysExtension {
                         return EvalResult::Value(Value::Map(Arc::new(RefCell::new(fields))));
                     }
                 } else {
-                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs.stat".into())] })));
+                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("fs_stat".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        modules.insert("fs".into(), fs_mod);
 
         // --- proc ---
-        let mut proc_mod = HashMap::new();
-        proc_mod.insert("run".into(), (|args, _| {
+        tasks.insert("proc_run".into(), (|args, _| {
             if let Some(val) = args.get(0) {
                 if let Value::String(cmd) = val {
                     let mut command = std::process::Command::new(cmd);
@@ -126,14 +122,13 @@ impl HankExtension for SysExtension {
                         return EvalResult::Value(Value::Map(Arc::new(RefCell::new(fields))));
                     }
                 } else {
-                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("proc.run".into())] })));
+                    return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("String".into()), Value::String(format!("{:?}", val.get_type())), Value::String("proc_run".into())] })));
                 }
             }
             EvalResult::Value(Value::Void)
         }) as NativeFunc);
-        modules.insert("proc".into(), proc_mod);
 
-        modules
+        tasks
     }
 }
 

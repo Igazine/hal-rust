@@ -117,7 +117,6 @@ pub enum Expr {
     Assign(String, Box<Expr>, TokenData),
     Literal(Value, TokenData),
     Ident(String, bool, TokenData),
-    Field(Box<Expr>, String, TokenData),
     FuncDef(Vec<Param>, Box<Expr>, TokenData),
     FuncCall(Box<Expr>, Vec<Expr>, TokenData),
     UnOp(String, Box<Expr>, TokenData),
@@ -137,6 +136,7 @@ pub enum Expr {
 #[derive(Clone, Debug, Default)]
 pub struct TokenData {
     pub line: usize,
+    pub column: usize,
     pub line_text: String,
 }
 
@@ -146,7 +146,7 @@ pub trait IHankSerializable {
 
 pub trait HankExtension {
     fn name(&self) -> &str;
-    fn get_modules(&self) -> HashMap<String, HashMap<String, NativeFunc>>;
+    fn get_tasks(&self) -> HashMap<String, NativeFunc>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,6 +184,10 @@ pub enum HankError {
 pub struct HankErrorValue {
     pub code: HankError,
     pub message: String,
+    pub filename: String,
+    pub line: usize,
+    pub column: usize,
+    pub line_text: String,
 }
 
 impl std::fmt::Display for HankErrorValue {

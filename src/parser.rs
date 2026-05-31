@@ -62,7 +62,7 @@ impl Parser {
     fn get_td(&self, expr: &Expr) -> TokenData {
         match expr {
             Expr::Block(_, td) | Expr::Assign(_, _, td) | Expr::Literal(_, td) | 
-            Expr::Ident(_, _, td) | Expr::Field(_, _, td) | Expr::FuncDef(_, _, td) | 
+            Expr::Ident(_, _, td) | Expr::FuncDef(_, _, td) | 
             Expr::FuncCall(_, _, td) | Expr::UnOp(_, _, td) | Expr::Map(_, td) | 
             Expr::Array(_, td) | Expr::FlowControl { token: td, .. } | Expr::Error(_, _, td) => td.clone(),
         }
@@ -164,7 +164,7 @@ impl Parser {
                 }
             },
             Token::LBrace => {
-                self.parse_block()?
+                return Err(self.error(HankError::UnexpectedToken, vec!["{".to_string(), "Standalone blocks are not allowed here. Use func definition syntax () {} instead.".to_string()]));
             },
             Token::LBracket => self.parse_collection_literal()?,
             Token::Not => {
@@ -188,7 +188,14 @@ impl Parser {
                 Expr::Literal(Value::Number(n), td)
             },
             Token::Caret => self.parse_return()?,
-            Token::Error(msg) => return Err(HankErrorValue { code: HankError::UnexpectedCharacter, message: msg }),
+            Token::Error(msg) => return Err(HankErrorValue { 
+                code: HankError::UnexpectedCharacter, 
+                message: msg,
+                filename: self.filename.clone(),
+                line: td.line,
+                column: td.column,
+                line_text: td.line_text.clone(),
+            }),
             _ => return Err(self.error(HankError::UnexpectedToken, vec![format!("{:?}", token), String::new()])),
         };
         
@@ -199,10 +206,6 @@ impl Parser {
         loop {
             let (token, td) = self.peek_full();
             match token {
-                Token::Dot => {
-                    self.pos += 1;
-                    expr = Expr::Field(Box::new(expr), self.consume_identifier()?, td);
-                },
                 Token::LParen => {
                     expr = Expr::FuncCall(Box::new(expr), self.parse_arg_list()?, td);
                 },
@@ -424,6 +427,6 @@ impl Parser {
 
     fn error(&self, code: HankError, args: Vec<String>) -> HankErrorValue {
         let td = self.peek_td();
-        HankErrorRegistry::create(code, args, Some(&self.filename), Some(td.line), Some(&td.line_text))
+        HankErrorRegistry::create(code, args, Some(&self.filename), Some(td.line), Some(td.column), Some(&td.line_text))
     }
 }

@@ -32,7 +32,7 @@ impl HankErrorRegistry {
         m
     }
 
-    pub fn create(code: HankError, args: Vec<String>, filename: Option<&str>, line: Option<usize>, line_text: Option<&str>) -> HankErrorValue {
+    pub fn create(code: HankError, args: Vec<String>, filename: Option<&str>, line: Option<usize>, column: Option<usize>, line_text: Option<&str>) -> HankErrorValue {
         let messages = Self::get_messages();
         let mut tmpl = messages.get(&code).cloned().unwrap_or_else(|| "Unknown Error".into());
 
@@ -40,10 +40,22 @@ impl HankErrorRegistry {
             tmpl = tmpl.replace(&format!("{{{}}}", i), arg);
         }
 
-        if let (Some(f), Some(l), Some(lt)) = (filename, line, line_text) {
-            tmpl = format!("ERROR: {} in {} at\n\t{}:\t{}", tmpl, f, l, lt);
+        let fname = filename.unwrap_or("unknown");
+        let lnum = line.unwrap_or(0);
+        let col = column.unwrap_or(0);
+        let ltxt = line_text.unwrap_or("");
+
+        if lnum > 0 {
+            tmpl = format!("ERROR: {} in {} at line {}, column {}:\n\t{}", tmpl, fname, lnum, col, ltxt);
         }
 
-        HankErrorValue { code, message: tmpl }
+        HankErrorValue { 
+            code, 
+            message: tmpl,
+            filename: fname.to_string(),
+            line: lnum,
+            column: col,
+            line_text: ltxt.to_string(),
+        }
     }
 }

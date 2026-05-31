@@ -98,6 +98,15 @@ fn main() {
 
     match runner.run(res, hank_args) {
         Ok(val) => {
+            if let Value::Error(e) = val {
+                let loc = runner.localization.borrow();
+                let mut msg = loc.get(&(e.code as i32)).cloned().unwrap_or_else(|| "Unknown Error".into());
+                for (i, arg) in e.args.iter().enumerate() {
+                    msg = msg.replace(&format!("{{{}}}", i), &stdlib::val_to_string(arg));
+                }
+                eprintln!("Runtime Error {}: {}", e.code as i32, msg);
+                std::process::exit(1);
+            }
             if let Value::Number(n) = val {
                 std::process::exit(n as i32);
             }
@@ -164,8 +173,19 @@ fn run_conformance(root: &Path) {
             args.push(Value::String("Tamas".into()));
         }
 
-        if let Err(e) = runner.run(res, args) {
-            println!("Test Failed: {}", e);
+        match runner.run(res, args) {
+            Ok(Value::Error(e)) => {
+                let loc = runner.localization.borrow();
+                let mut msg = loc.get(&(e.code as i32)).cloned().unwrap_or_else(|| "Unknown Error".into());
+                for (i, arg) in e.args.iter().enumerate() {
+                    msg = msg.replace(&format!("{{{}}}", i), &stdlib::val_to_string(arg));
+                }
+                println!("Test Runtime Error {}: {}", e.code as i32, msg);
+            },
+            Err(e) => {
+                println!("Test Failed: {}", e);
+            },
+            _ => {}
         }
         println!("--------------------\n");
     }
@@ -185,8 +205,19 @@ fn run_conformance(root: &Path) {
             Err(_) => { println!("Test not found: {}", path.display()); continue; }
         };
         let res = Arc::new(FileResource::new(abs_path.to_string_lossy().to_string()));
-        if let Err(e) = runner.run(res, vec![]) {
-            println!("Extension Test Failed: {}", e);
+        match runner.run(res, vec![]) {
+            Ok(Value::Error(e)) => {
+                let loc = runner.localization.borrow();
+                let mut msg = loc.get(&(e.code as i32)).cloned().unwrap_or_else(|| "Unknown Error".into());
+                for (i, arg) in e.args.iter().enumerate() {
+                    msg = msg.replace(&format!("{{{}}}", i), &stdlib::val_to_string(arg));
+                }
+                println!("Extension Runtime Error {}: {}", e.code as i32, msg);
+            },
+            Err(e) => {
+                println!("Extension Test Failed: {}", e);
+            },
+            _ => {}
         }
         println!("--------------------\n");
     }
