@@ -7,6 +7,8 @@ pub struct Interpreter {
     pub global_scope: Arc<dyn Scope>,
     pub core_scope: Arc<dyn Scope>,
     pub localization: HashMap<i32, String>,
+    pub max_instructions: usize,
+    pub instruction_count: RefCell<usize>,
     _depth: usize,
 }
 
@@ -52,7 +54,14 @@ impl Interpreter {
             values: RefCell::new(HashMap::new()),
             parent: Some(core_scope.clone()),
         }));
-        Self { global_scope: global, core_scope, localization, _depth: 0 }
+        Self { 
+            global_scope: global, 
+            core_scope, 
+            localization, 
+            _depth: 0,
+            max_instructions: 0,
+            instruction_count: RefCell::new(0),
+        }
     }
 
     pub fn run(&mut self, expr: &Expr) -> Value {
@@ -80,6 +89,17 @@ impl Interpreter {
     }
 
     fn eval_in_scope(&self, expr: &Expr, scope: &Arc<dyn Scope>) -> EvalResult {
+        if self.max_instructions > 0 {
+            let mut count = self.instruction_count.borrow_mut();
+            *count += 1;
+            if *count > self.max_instructions {
+                return EvalResult::Error(Value::Error(Arc::new(ErrorValue { 
+                    code: HankError::InstructionLimitExceeded, 
+                    args: vec![Value::Number(*count as f64)] 
+                })));
+            }
+        }
+
         const MAX_DEPTH: usize = 1000;
         if self._depth > MAX_DEPTH {
             return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::GenericRuntimeError, args: vec![Value::String("Stack overflow".into())] })));
@@ -246,10 +266,7 @@ impl Interpreter {
                     }
                 },
                 TaskValue::User { params, body, closure, .. } => {
-                    if args.len() > params.len() {
-                        return EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TooManyArguments, args: vec![] })));
-                    }
-                    let task_scope: Arc<dyn Scope> = Arc::new(HankScope {
+                    let mut task_scope: Arc<dyn Scope> = Arc::new(HankScope {
                         values: RefCell::new(HashMap::new()),
                         parent: Some(closure.clone()),
                     });

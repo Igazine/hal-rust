@@ -15,6 +15,7 @@ pub struct Runner {
     resource_cache: RefCell<HashMap<String, Arc<dyn Resource>>>,
     pub core_scope: Arc<dyn Scope>,
     pub localization: RefCell<HashMap<i32, String>>,
+    pub max_instructions: usize,
 }
 
 impl Runner {
@@ -23,6 +24,7 @@ impl Runner {
             resource_cache: RefCell::new(HashMap::new()),
             core_scope: Arc::new(HankScope::new(None)),
             localization: RefCell::new(HashMap::new()),
+            max_instructions: 0,
         }
     }
 
@@ -122,6 +124,7 @@ impl Runner {
         let ast = self.load(resource, stack)?;
 
         let mut interp = Interpreter::new(None, self.core_scope.clone(), self.localization.borrow().clone());
+        interp.max_instructions = self.max_instructions;
         let script_res = interp.run(&ast);
 
         if let Value::Task(script_task) = script_res {

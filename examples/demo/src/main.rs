@@ -61,6 +61,7 @@ fn create_runner() -> Runner {
     loc.insert(4002, "Too many arguments".into());
     loc.insert(4007, "Type Mismatch: Expected {0}, got {1} in {2}".into());
     loc.insert(4005, "Value exceeds safe integer bounds: {0} in {1}".into());
+    loc.insert(4008, "Instruction Limit Exceeded: Script reached the maximum allowed AST evaluations ({0})".into());
     runner.register_localization(loc);
 
     // 1. Register StdLib (Pure)
@@ -136,11 +137,16 @@ fn run_conformance(root: &Path) {
         "test/conformance/18_runtime_module.hank",
         "test/conformance/19_error_handling.hank",
         "test/conformance/20_grammar_hardening.hank",
+        "test/conformance/21_data_functional.hank",
+        "test/conformance/22_instruction_limit.hank",
     ];
 
     for t in &tests {
         println!("--- Running: {} ---", t);
-        let runner = create_runner();
+        let mut runner = create_runner();
+        if t.contains("22_instruction_limit") {
+            runner.max_instructions = 1000;
+        }
         let path = root.join(t);
         let abs_path = match fs::canonicalize(&path) {
             Ok(p) => p,

@@ -212,6 +212,18 @@ pub fn get_stdlib_tasks(env_state: Arc<RefCell<HashMap<String, Value>>>) -> Hash
                 }
             }
         }));
+    tasks.insert("math_mod".into(), wrap_native(|args: Vec<Value>, _| {
+            if args.len() < 2 { return EvalResult::Value(Value::Void); }
+            match (args.get(0).unwrap(), args.get(1).unwrap()) {
+                (Value::Number(a), Value::Number(b)) => {
+                    if *b != 0.0 { EvalResult::Value(Value::Number(a % b)) } else { EvalResult::Value(Value::Void) }
+                },
+                (a, b) => {
+                    let faulty = if a.get_type() != ValueType::Number { a } else { b };
+                    EvalResult::Error(Value::Error(Arc::new(ErrorValue { code: HankError::TypeMismatch, args: vec![Value::String("Number".into()), Value::String(format!("{:?}", faulty.get_type())), Value::String("math_mod".into())] })))
+                }
+            }
+        }));
     tasks.insert("math_gt".into(), wrap_native(|args: Vec<Value>, _| {
             if args.len() < 2 { return EvalResult::Value(Value::Void); }
             match (args.get(0).unwrap(), args.get(1).unwrap()) {
@@ -377,8 +389,109 @@ pub fn get_stdlib_tasks(env_state: Arc<RefCell<HashMap<String, Value>>>) -> Hash
             }
             EvalResult::Value(Value::Void)
         }));
-
-    // --- map ---
+    tasks.insert("arr_map".into(), wrap_native(|args: Vec<Value>, ctx: &dyn ExecutionContext| {
+            if let (Some(Value::Array(a)), Some(Value::Task(t))) = (args.get(0), args.get(1)) {
+                let items = a.borrow().clone();
+                let mut new_items = Vec::new();
+                for (idx, item) in items.iter().enumerate() {
+                    let call_args = vec![item.clone(), Value::Number(idx as f64)];
+                    let res = ctx.call(&Value::Task(t.clone()), call_args);
+                    if ctx.is_error(&res) { return EvalResult::Error(res); }
+                    new_items.push(res);
+                }
+                return EvalResult::Value(Value::Array(Arc::new(RefCell::new(new_items))));
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_filter".into(), wrap_native(|args: Vec<Value>, ctx: &dyn ExecutionContext| {
+            if let (Some(Value::Array(a)), Some(Value::Task(t))) = (args.get(0), args.get(1)) {
+                let items = a.borrow().clone();
+                let mut new_items = Vec::new();
+                for (idx, item) in items.iter().enumerate() {
+                    let call_args = vec![item.clone(), Value::Number(idx as f64)];
+                    let res = ctx.call(&Value::Task(t.clone()), call_args);
+                    if ctx.is_error(&res) { return EvalResult::Error(res); }
+                    if !matches!(res, Value::Void) { new_items.push(item.clone()); }
+                }
+                return EvalResult::Value(Value::Array(Arc::new(RefCell::new(new_items))));
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_indexof".into(), wrap_native(|args: Vec<Value>, _| {
+            if let (Some(Value::Array(a)), Some(v)) = (args.get(0), args.get(1)) {
+                let items = a.borrow();
+                for (idx, item) in items.iter().enumerate() {
+                    if hank_equals(item, v) { return EvalResult::Value(Value::Number(idx as f64)); }
+                }
+                return EvalResult::Value(Value::Number(-1.0));
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_shift".into(), wrap_native(|args: Vec<Value>, _| {
+            if let Some(Value::Array(a)) = args.get(0) {
+                if a.borrow().is_empty() { return EvalResult::Value(Value::Void); }
+                return EvalResult::Value(a.borrow_mut().remove(0));
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_unshift".into(), wrap_native(|args: Vec<Value>, _| {
+            if let (Some(Value::Array(a)), Some(v)) = (args.get(0), args.get(1)) {
+                a.borrow_mut().insert(0, v.clone());
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_slice".into(), wrap_native(|args: Vec<Value>, _| {
+            if let Some(Value::Array(a)) = args.get(0) {
+                let start = if let Some(Value::Number(n)) = args.get(1) { *n as i32 } else { 0 };
+                let end = if let Some(Value::Number(n)) = args.get(2) { Some(*n as i32) } else { None };
+                let items = a.borrow();
+                let len = items.len() as i32;
+                
+                let actual_start = if start < 0 { (len + start).max(0) } else { start.min(len) } as usize;
+                let actual_end = match end {
+                    Some(e) => (if e < 0 { (len + e).max(0) } else { e.min(len) }) as usize,
+                    None => len as usize,
+                };
+                
+                if actual_start >= actual_end { return EvalResult::Value(Value::Array(Arc::new(RefCell::new(Vec::new())))); }
+                let slice = items[actual_start..actual_end].to_vec();
+                return EvalResult::Value(Value::Array(Arc::new(RefCell::new(slice))));
+            }
+            EvalResult::Value(Value::Void)
+        }));
+    tasks.insert("arr_sort".into(), wrap_native(|args: Vec<Value>, ctx: &dyn ExecutionContext| {
+            if let Some(Value::Array(a)) = args.get(0) {
+                let mut items = a.borrow().clone();
+                if let Some(Value::Task(t)) = args.get(1) {
+                    let mut err = None;
+                    items.sort_by(|a, b| {
+                        if err.is_some() { return std::cmp::Ordering::Equal; }
+                        let res = ctx.call(&Value::Task(t.clone()), vec![a.clone(), b.clone()]);
+                        if let Value::Number(n) = res {
+                            if n < 0.0 { std::cmp::Ordering::Less }
+                            else if n > 0.0 { std::cmp::Ordering::Greater }
+                            else { std::cmp::Ordering::Equal }
+                        } else if ctx.is_error(&res) {
+                            err = Some(res);
+                            std::cmp::Ordering::Equal
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    });
+                    if let Some(e) = err { return EvalResult::Error(e); }
+                } else {
+                    items.sort_by(|a, b| {
+                        match (a, b) {
+                            (Value::Number(n1), Value::Number(n2)) => n1.partial_cmp(n2).unwrap_or(std::cmp::Ordering::Equal),
+                            (Value::String(s1), Value::String(s2)) => s1.cmp(s2),
+                            _ => std::cmp::Ordering::Equal,
+                        }
+                    });
+                }
+                *a.borrow_mut() = items;
+            }
+            EvalResult::Value(Value::Void)
+        }));
     tasks.insert("map_get".into(), wrap_native(|args: Vec<Value>, _| {
             if let (Some(Value::Map(m)), Some(k)) = (args.get(0), args.get(1)) {
                 return EvalResult::Value(m.borrow().get(&val_to_string(k)).cloned().unwrap_or(Value::Void));
@@ -404,6 +517,12 @@ pub fn get_stdlib_tasks(env_state: Arc<RefCell<HashMap<String, Value>>>) -> Hash
                 keys.sort_by(|a, b| if let (Value::String(s1), Value::String(s2)) = (a, b) { s1.cmp(s2) } else { std::cmp::Ordering::Equal });
                 EvalResult::Value(Value::Array(Arc::new(RefCell::new(keys))))
             } else { EvalResult::Value(Value::Void) }
+        }));
+    tasks.insert("map_remove".into(), wrap_native(|args: Vec<Value>, _| {
+            if let (Some(Value::Map(m)), Some(k)) = (args.get(0), args.get(1)) {
+                m.borrow_mut().remove(&val_to_string(k));
+            }
+            EvalResult::Value(Value::Void)
         }));
 
     // --- json ---
@@ -451,10 +570,16 @@ pub fn get_stdlib_tasks(env_state: Arc<RefCell<HashMap<String, Value>>>) -> Hash
             }
             EvalResult::Value(Value::Void)
         }));
-    tasks.insert("err_isError".into(), wrap_native(|args: Vec<Value>, _| {
-            EvalResult::Value(if let Some(Value::Error(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })
-        }));
-    
+    // --- type ---
+    tasks.insert("type_isVoid".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if matches!(args.get(0).unwrap_or(&Value::Void), Value::Void) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isNumber".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Number(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isString".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::String(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isArray".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Array(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isMap".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Map(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isOpaque".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Opaque(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isTask".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Task(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+    tasks.insert("type_isError".into(), wrap_native(|args: Vec<Value>, _| EvalResult::Value(if let Some(Value::Error(_)) = args.get(0) { Value::Number(1.0) } else { Value::Void })));
+
     // --- regex ---
     tasks.insert("regex_parse".into(), wrap_native(|args: Vec<Value>, _| {
             if args.is_empty() { return EvalResult::Value(Value::Void); }
